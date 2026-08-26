@@ -7,6 +7,7 @@ use App\Filament\Pages\Auth\Login;
 use App\Filament\Widgets\AccountBalanceWidget;
 use App\Filament\Widgets\IncomeExpenseChartWidget;
 use App\Filament\Widgets\RecentJournalEntriesWidget;
+use App\Filament\Widgets\WalletBreakdownWidget;
 use App\Filament\Widgets\WalletOnboardingWidget;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
@@ -54,6 +55,7 @@ class AdminPanelProvider extends PanelProvider
                 'Transaksi Cepat',
                 'Laporan Keuangan',
                 'Buku Besar & Akun',
+                'Audit & Riwayat',
                 'Panduan & Bantuan',
             ])
             ->discoverResources(in: app_path('Filament/Resources'), for: 'App\Filament\Resources')
@@ -61,11 +63,11 @@ class AdminPanelProvider extends PanelProvider
             ->pages([
                 Dashboard::class,
             ])
-            ->discoverWidgets(in: app_path('Filament/Widgets'), for: 'App\Filament\Widgets')
             ->widgets([
                 WalletOnboardingWidget::class,
                 AccountBalanceWidget::class,
                 IncomeExpenseChartWidget::class,
+                WalletBreakdownWidget::class,
                 RecentJournalEntriesWidget::class,
             ])
             ->renderHook(

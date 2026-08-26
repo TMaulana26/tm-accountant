@@ -14,6 +14,11 @@ class IncomeExpenseChartWidget extends ChartWidget
 
     protected static ?int $sort = 2;
 
+    protected int|string|array $columnSpan = [
+        'default' => 'full',
+        'lg' => 1,
+    ];
+
     protected function getData(): array
     {
         $months = [];
