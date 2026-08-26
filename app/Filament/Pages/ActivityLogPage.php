@@ -2,6 +2,7 @@
 
 namespace App\Filament\Pages;
 
+use App\Filament\Widgets\ActivityLogStatsWidget;
 use BackedEnum;
 use Filament\Actions\Action;
 use Filament\Forms\Components\DatePicker;
@@ -34,6 +35,13 @@ class ActivityLogPage extends Page implements HasTable
     protected static ?string $title = 'Log Aktivitas Sistem (Audit Trail)';
 
     protected static ?int $navigationSort = 1;
+
+    protected function getHeaderWidgets(): array
+    {
+        return [
+            ActivityLogStatsWidget::class,
+        ];
+    }
 
     public function table(Table $table): Table
     {
@@ -157,15 +165,5 @@ class ActivityLogPage extends Page implements HasTable
                     }),
             ])
             ->defaultPaginationPageOption(25);
-    }
-
-    public function getStatistics(): array
-    {
-        return [
-            'total' => Activity::count(),
-            'transaksi' => Activity::where('log_name', 'transaksi_jurnal')->count(),
-            'dompet' => Activity::where('log_name', 'dompet_rekening')->count(),
-            'bot' => Activity::where('log_name', 'telegram_bot')->count(),
-        ];
     }
 }

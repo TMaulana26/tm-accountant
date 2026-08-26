@@ -3,6 +3,7 @@
 namespace App\Filament\Pages;
 
 use App\Enums\TelegramMessageStatus;
+use App\Filament\Widgets\TelegramChatStatsWidget;
 use App\Models\TelegramMessage;
 use BackedEnum;
 use Carbon\Carbon;
@@ -29,6 +30,13 @@ class TelegramChatHistoryPage extends Page
     protected static ?string $title = 'Riwayat Percakapan Telegram Bot';
 
     protected static ?int $navigationSort = 2;
+
+    protected function getHeaderWidgets(): array
+    {
+        return [
+            TelegramChatStatsWidget::class,
+        ];
+    }
 
     public ?array $data = [];
 
