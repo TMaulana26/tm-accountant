@@ -71,7 +71,7 @@ PROMPT;
             ],
         ];
 
-        $modelsToTry = array_unique([$this->model, 'gemini-3.7-flash', 'gemini-3.5-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite']);
+        $modelsToTry = array_unique([$this->model, 'gemini-3.1-flash-lite', 'gemini-3.6-flash', 'gemini-3.7-flash', 'gemini-3.5-flash']);
         $lastException = null;
 
         foreach ($modelsToTry as $modelName) {
@@ -89,7 +89,7 @@ PROMPT;
                     'generationConfig' => $generationConfig,
                 ];
 
-                $response = Http::timeout(15)
+                $response = Http::timeout($this->timeout)
                     ->withHeaders(['Content-Type' => 'application/json'])
                     ->post($endpoint, $modelPayload);
 
