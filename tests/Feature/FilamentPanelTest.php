@@ -33,6 +33,8 @@ test('authenticated user can access dashboard and report pages', function () {
     $this->get('/admin/trial-balance-report')->assertSuccessful();
     $this->get('/admin/user-guide')->assertSuccessful();
     $this->get('/admin/wallets')->assertSuccessful();
+    $this->get('/admin/activity-log-page')->assertSuccessful();
+    $this->get('/admin/telegram-chat-history-page')->assertSuccessful();
 });
 
 test('can submit quick transaction from QuickTransaction page', function () {

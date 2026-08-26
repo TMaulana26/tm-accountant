@@ -10,10 +10,28 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Facades\Storage;
+use Spatie\Activitylog\Models\Concerns\LogsActivity;
+use Spatie\Activitylog\Support\LogOptions;
 
 class JournalEntry extends Model
 {
     use HasFactory;
+    use LogsActivity;
+
+    public function getActivitylogOptions(): LogOptions
+    {
+        return LogOptions::defaults()
+            ->logOnly(['entry_number', 'date', 'description', 'source', 'reference_number'])
+            ->logOnlyDirty()
+            ->dontLogEmptyChanges()
+            ->useLogName('transaksi_jurnal')
+            ->setDescriptionForEvent(fn (string $eventName) => match ($eventName) {
+                'created' => "Mencatat transaksi jurnal {$this->entry_number}",
+                'updated' => "Memperbarui transaksi jurnal {$this->entry_number}",
+                'deleted' => "Menghapus transaksi jurnal {$this->entry_number}",
+                default => "Aktivitas jurnal {$this->entry_number}",
+            });
+    }
 
     protected $fillable = [
         'entry_number',

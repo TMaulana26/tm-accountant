@@ -136,6 +136,19 @@ class AccountingService
         }
 
         return DB::transaction(function () use ($entry) {
+            $entryNumber = $entry->entry_number;
+            $description = $entry->description;
+
+            activity()
+                ->performedOn($entry)
+                ->useLog('transaksi_jurnal')
+                ->event('undo')
+                ->withProperties([
+                    'entry_number' => $entryNumber,
+                    'description' => $description,
+                ])
+                ->log("Membatalkan / Undo transaksi jurnal {$entryNumber} ({$description})");
+
             // Update linked telegram message status if any
             TelegramMessage::where('journal_entry_id', $entry->id)
                 ->update(['status' => TelegramMessageStatus::Reverted]);
@@ -218,6 +231,20 @@ class AccountingService
         if (abs($diff) < 0.01) {
             return null; // No adjustment needed
         }
+
+        activity()
+            ->causedBy($creator)
+            ->performedOn($account)
+            ->useLog('dompet_rekening')
+            ->event('adjustment')
+            ->withProperties([
+                'account_name' => $account->name,
+                'previous_balance' => $currentBalance,
+                'new_balance' => $realBalance,
+                'difference' => $diff,
+                'reason' => $reason,
+            ])
+            ->log("Penyesuaian saldo dompet {$account->name} dari Rp ".number_format($currentBalance, 0, ',', '.').' menjadi Rp '.number_format($realBalance, 0, ',', '.'));
 
         $date = $date ?? now();
 

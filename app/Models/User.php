@@ -9,11 +9,31 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Spatie\Activitylog\Models\Concerns\LogsActivity;
+use Spatie\Activitylog\Support\LogOptions;
 
 class User extends Authenticatable implements FilamentUser
 {
     /** @use HasFactory<UserFactory> */
-    use HasFactory, Notifiable;
+    use HasFactory;
+
+    use LogsActivity;
+    use Notifiable;
+
+    public function getActivitylogOptions(): LogOptions
+    {
+        return LogOptions::defaults()
+            ->logOnly(['name', 'email', 'telegram_chat_id', 'wallet_setup_completed_at'])
+            ->logOnlyDirty()
+            ->dontLogEmptyChanges()
+            ->useLogName('pengguna_autentikasi')
+            ->setDescriptionForEvent(fn (string $eventName) => match ($eventName) {
+                'created' => "Membuat akun pengguna {$this->name} ({$this->email})",
+                'updated' => "Mengubah profil/keamanan pengguna {$this->name}",
+                'deleted' => "Menghapus akun pengguna {$this->name}",
+                default => "Aktivitas akun pengguna {$this->name}",
+            });
+    }
 
     protected $fillable = [
         'name',

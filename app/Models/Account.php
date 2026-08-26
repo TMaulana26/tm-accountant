@@ -10,10 +10,28 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Spatie\Activitylog\Models\Concerns\LogsActivity;
+use Spatie\Activitylog\Support\LogOptions;
 
 class Account extends Model
 {
     use HasFactory;
+    use LogsActivity;
+
+    public function getActivitylogOptions(): LogOptions
+    {
+        return LogOptions::defaults()
+            ->logOnly(['name', 'account_number', 'account_holder', 'is_default', 'is_active', 'color', 'icon'])
+            ->logOnlyDirty()
+            ->dontLogEmptyChanges()
+            ->useLogName('dompet_rekening')
+            ->setDescriptionForEvent(fn (string $eventName) => match ($eventName) {
+                'created' => "Menambahkan dompet/rekening [{$this->code}] {$this->name}",
+                'updated' => "Mengubah data dompet/rekening [{$this->code}] {$this->name}",
+                'deleted' => "Menghapus dompet/rekening [{$this->code}] {$this->name}",
+                default => "Aktivitas dompet [{$this->code}] {$this->name}",
+            });
+    }
 
     protected $fillable = [
         'code',
