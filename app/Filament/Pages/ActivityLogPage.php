@@ -3,19 +3,26 @@
 namespace App\Filament\Pages;
 
 use BackedEnum;
-use Carbon\Carbon;
+use Filament\Actions\Action;
 use Filament\Forms\Components\DatePicker;
-use Filament\Forms\Components\Select;
+use Filament\Forms\Components\Textarea;
 use Filament\Pages\Page;
-use Filament\Schemas\Components\Grid;
-use Filament\Schemas\Components\Section;
-use Filament\Schemas\Components\Utilities\Set;
-use Filament\Schemas\Schema;
+use Filament\Support\Enums\FontFamily;
+use Filament\Support\Enums\FontWeight;
 use Filament\Support\Icons\Heroicon;
+use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Concerns\InteractsWithTable;
+use Filament\Tables\Contracts\HasTable;
+use Filament\Tables\Filters\Filter;
+use Filament\Tables\Filters\SelectFilter;
+use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 use Spatie\Activitylog\Models\Activity;
 
-class ActivityLogPage extends Page
+class ActivityLogPage extends Page implements HasTable
 {
+    use InteractsWithTable;
+
     protected string $view = 'filament.pages.activity-log-page';
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedQueueList;
@@ -28,120 +35,128 @@ class ActivityLogPage extends Page
 
     protected static ?int $navigationSort = 1;
 
-    public ?array $data = [];
-
-    public function mount(): void
+    public function table(Table $table): Table
     {
-        $this->form->fill([
-            'period_preset' => 'all',
-            'start_date' => null,
-            'end_date' => null,
-            'log_name' => 'all',
-            'event' => 'all',
-        ]);
-    }
+        return $table
+            ->query(Activity::query()->with(['causer'])->latest('id'))
+            ->heading('Catatan Aktivitas Sistem')
+            ->description('Audit trail riwayat aktivitas transaksi, akun dompet, dan autentikasi.')
+            ->columns([
+                TextColumn::make('created_at')
+                    ->label('Waktu')
+                    ->dateTime('d M Y, H:i:s')
+                    ->fontFamily(FontFamily::Mono)
+                    ->sortable(),
 
-    public function form(Schema $schema): Schema
-    {
-        return $schema
-            ->statePath('data')
-            ->components([
-                Section::make('Filter Log Aktivitas')
-                    ->schema([
-                        Grid::make(4)->schema([
-                            Select::make('period_preset')
-                                ->label('Periode Waktu')
-                                ->options([
-                                    'all' => 'Semua Waktu',
-                                    'today' => 'Hari Ini',
-                                    'last_7_days' => '7 Hari Terakhir',
-                                    'this_month' => 'Bulan Ini',
-                                    'custom' => 'Kustom (Pilih Tanggal)',
-                                ])
-                                ->default('all')
-                                ->live()
-                                ->afterStateUpdated(function (Set $set, ?string $state) {
-                                    if ($state === 'today') {
-                                        $set('start_date', now()->format('Y-m-d'));
-                                        $set('end_date', now()->format('Y-m-d'));
-                                    } elseif ($state === 'last_7_days') {
-                                        $set('start_date', now()->subDays(6)->format('Y-m-d'));
-                                        $set('end_date', now()->format('Y-m-d'));
-                                    } elseif ($state === 'this_month') {
-                                        $set('start_date', now()->startOfMonth()->format('Y-m-d'));
-                                        $set('end_date', now()->endOfMonth()->format('Y-m-d'));
-                                    } elseif ($state === 'all') {
-                                        $set('start_date', null);
-                                        $set('end_date', null);
-                                    }
-                                }),
+                TextColumn::make('log_name')
+                    ->label('Kategori')
+                    ->badge()
+                    ->formatStateUsing(fn (?string $state) => match ($state) {
+                        'transaksi_jurnal' => '🧾 Transaksi',
+                        'dompet_rekening' => '👛 Dompet',
+                        'pengguna_autentikasi' => '👤 Pengguna',
+                        'telegram_bot' => '🤖 Telegram',
+                        default => $state ?: 'System',
+                    })
+                    ->color(fn (?string $state) => match ($state) {
+                        'transaksi_jurnal' => 'success',
+                        'dompet_rekening' => 'info',
+                        'pengguna_autentikasi' => 'primary',
+                        'telegram_bot' => 'warning',
+                        default => 'gray',
+                    }),
 
-                            Select::make('log_name')
-                                ->label('Kategori Log')
-                                ->options([
-                                    'all' => 'Semua Kategori',
-                                    'transaksi_jurnal' => '🧾 Transaksi Jurnal',
-                                    'dompet_rekening' => '👛 Dompet & Rekening',
-                                    'pengguna_autentikasi' => '👤 Pengguna & Auth',
-                                    'telegram_bot' => '🤖 Telegram Bot',
-                                ])
-                                ->default('all')
-                                ->live(),
+                TextColumn::make('event')
+                    ->label('Aksi')
+                    ->badge()
+                    ->formatStateUsing(fn (?string $state) => match ($state) {
+                        'created' => 'Created',
+                        'updated' => 'Updated',
+                        'deleted' => 'Deleted',
+                        'undo' => 'Undo',
+                        'adjustment' => 'Adjusted',
+                        default => $state ?: 'Info',
+                    })
+                    ->color(fn (?string $state) => match ($state) {
+                        'created' => 'success',
+                        'updated' => 'info',
+                        'deleted' => 'danger',
+                        'undo', 'adjustment' => 'warning',
+                        default => 'gray',
+                    }),
 
-                            Select::make('event')
-                                ->label('Tipe Aksi')
-                                ->options([
-                                    'all' => 'Semua Aksi',
-                                    'created' => 'Dibuat (Created)',
-                                    'updated' => 'Diubah (Updated)',
-                                    'deleted' => 'Dihapus (Deleted)',
-                                    'undo' => 'Dibatalkan (Undo)',
-                                    'adjustment' => 'Penyesuaian Saldo',
-                                ])
-                                ->default('all')
-                                ->live(),
+                TextColumn::make('description')
+                    ->label('Deskripsi Aktivitas')
+                    ->weight(FontWeight::SemiBold)
+                    ->wrap()
+                    ->searchable(),
 
-                            Grid::make(2)
-                                ->schema([
-                                    DatePicker::make('start_date')
-                                        ->label('Dari')
-                                        ->live(),
-                                    DatePicker::make('end_date')
-                                        ->label('Sampai')
-                                        ->live(),
-                                ])
-                                ->columnSpan(1),
-                        ]),
+                TextColumn::make('causer.name')
+                    ->label('Pelaku')
+                    ->default('🤖 Sistem / Bot')
+                    ->icon(fn (Activity $record) => $record->causer ? 'heroicon-m-user' : null),
+            ])
+            ->actions([
+                Action::make('view_details')
+                    ->label('Lihat Data')
+                    ->icon('heroicon-m-eye')
+                    ->modalHeading('📦 Rincian Data Properti Log')
+                    ->modalSubmitAction(false)
+                    ->modalCancelActionLabel('Tutup')
+                    ->form([
+                        Textarea::make('payload')
+                            ->label('JSON Payload / Perubahan Data')
+                            ->rows(12)
+                            ->disabled(),
+                    ])
+                    ->mountUsing(function ($form, Activity $record) {
+                        $data = ($record->properties && $record->properties->isNotEmpty())
+                            ? $record->properties->toArray()
+                            : ($record->attribute_changes ? (is_array($record->attribute_changes) ? $record->attribute_changes : json_decode($record->attribute_changes, true)) : []);
+
+                        $form->fill([
+                            'payload' => json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+                        ]);
+                    }),
+            ])
+            ->filters([
+                SelectFilter::make('log_name')
+                    ->label('Kategori Log')
+                    ->options([
+                        'transaksi_jurnal' => '🧾 Transaksi Jurnal',
+                        'dompet_rekening' => '👛 Dompet & Rekening',
+                        'pengguna_autentikasi' => '👤 Pengguna & Auth',
+                        'telegram_bot' => '🤖 Telegram Bot',
                     ]),
-            ]);
-    }
 
-    public function getActivities()
-    {
-        $query = Activity::query()->with(['causer'])->latest('id');
+                SelectFilter::make('event')
+                    ->label('Tipe Aksi')
+                    ->options([
+                        'created' => 'Created (Dibuat)',
+                        'updated' => 'Updated (Diubah)',
+                        'deleted' => 'Deleted (Dihapus)',
+                        'undo' => 'Undo (Dibatalkan)',
+                        'adjustment' => 'Adjusted (Penyesuaian)',
+                    ]),
 
-        $logName = $this->data['log_name'] ?? 'all';
-        if ($logName && $logName !== 'all') {
-            $query->where('log_name', $logName);
-        }
-
-        $event = $this->data['event'] ?? 'all';
-        if ($event && $event !== 'all') {
-            $query->where('event', $event);
-        }
-
-        $startDate = $this->data['start_date'] ?? null;
-        $endDate = $this->data['end_date'] ?? null;
-
-        if ($startDate) {
-            $query->whereDate('created_at', '>=', Carbon::parse($startDate)->startOfDay());
-        }
-
-        if ($endDate) {
-            $query->whereDate('created_at', '<=', Carbon::parse($endDate)->endOfDay());
-        }
-
-        return $query->paginate(30);
+                Filter::make('created_at')
+                    ->form([
+                        DatePicker::make('created_from')->label('Dari Tanggal'),
+                        DatePicker::make('created_until')->label('Sampai Tanggal'),
+                    ])
+                    ->query(function (Builder $query, array $data): Builder {
+                        return $query
+                            ->when(
+                                $data['created_from'],
+                                fn (Builder $query, $date): Builder => $query->whereDate('created_at', '>=', $date),
+                            )
+                            ->when(
+                                $data['created_until'],
+                                fn (Builder $query, $date): Builder => $query->whereDate('created_at', '<=', $date),
+                            );
+                    }),
+            ])
+            ->defaultPaginationPageOption(25);
     }
 
     public function getStatistics(): array
