@@ -59,7 +59,12 @@ class TelegramChatHistoryPage extends Page
             ->components([
                 Section::make('Filter Percakapan Telegram')
                     ->schema([
-                        Grid::make(5)->schema([
+                        Grid::make([
+                            'default' => 1,
+                            'sm' => 2,
+                            'md' => 3,
+                            'xl' => 6,
+                        ])->schema([
                             Select::make('period_preset')
                                 ->label('Periode Waktu')
                                 ->options([
@@ -91,8 +96,16 @@ class TelegramChatHistoryPage extends Page
                                     }
                                 }),
 
+                            DatePicker::make('start_date')
+                                ->label('Dari Tanggal')
+                                ->live(),
+
+                            DatePicker::make('end_date')
+                                ->label('Sampai Tanggal')
+                                ->live(),
+
                             Select::make('intent')
-                                ->label('Kategori Niat (Intent)')
+                                ->label('Kategori Intent')
                                 ->options([
                                     'all' => 'Semua Intent',
                                     'record_expense' => '💸 Pengeluaran',
@@ -121,17 +134,6 @@ class TelegramChatHistoryPage extends Page
                                 ->label('Cari Percakapan')
                                 ->placeholder('Ketik kata kunci...')
                                 ->live(debounce: 400),
-
-                            Grid::make(2)
-                                ->schema([
-                                    DatePicker::make('start_date')
-                                        ->label('Dari')
-                                        ->live(),
-                                    DatePicker::make('end_date')
-                                        ->label('Sampai')
-                                        ->live(),
-                                ])
-                                ->columnSpan(1),
                         ]),
                     ]),
             ]);
