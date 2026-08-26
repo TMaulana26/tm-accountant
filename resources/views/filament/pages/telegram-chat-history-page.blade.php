@@ -1,4 +1,4 @@
-﻿<x-filament-panels::page>
+<x-filament-panels::page>
     <style>
         .tm-chat-viewport {
             background-color: #f8fafc;
@@ -191,7 +191,7 @@
 
                                                     <div class="tm-bot-bubble text-sm space-y-2">
                                                         <div class="tm-bot-content">
-                                                            {!! nl2br($msg->ai_response) !!}
+                                                            {!! $this->formatChatResponse($msg->ai_response) !!}
                                                         </div>
 
                                                         @if($msg->journal_entry_id && $msg->journalEntry)

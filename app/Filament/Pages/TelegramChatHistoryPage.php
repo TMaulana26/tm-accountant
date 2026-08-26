@@ -175,6 +175,25 @@ class TelegramChatHistoryPage extends Page
         return $query->get()->groupBy(fn ($item) => $item->created_at->format('Y-m-d'));
     }
 
+    public function formatChatResponse(?string $text): string
+    {
+        if (empty($text)) {
+            return '';
+        }
+
+        // 1. Convert Markdown bold **text** or __text__ to <strong>text</strong>
+        $text = preg_replace('/\*\*(.*?)\*\*/s', '<strong>$1</strong>', $text);
+        $text = preg_replace('/__(.*?)__/s', '<strong>$1</strong>', $text);
+
+        // 2. Convert Markdown bullet list `- ` to `• `
+        $text = preg_replace('/^\s*[-*]\s+/m', '• ', $text);
+
+        // 3. Convert markdown inline code `code` to <code>code</code>
+        $text = preg_replace('/`([^`]+)`/', '<code>$1</code>', $text);
+
+        return nl2br($text);
+    }
+
     public function getStatistics(): array
     {
         return [
