@@ -1,4 +1,4 @@
-﻿<x-filament-panels::page>
+<x-filament-panels::page>
     <div class="space-y-6">
         @php
             $stats = $this->getStatistics();
@@ -6,44 +6,44 @@
         @endphp
 
         <!-- Metric Stat Cards -->
-        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-4 shadow-sm flex items-center gap-4">
-                <div class="p-3 bg-primary-50 dark:bg-primary-950/50 text-primary-600 dark:text-primary-400 rounded-lg text-2xl">
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 w-full">
+            <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-5 shadow-xs flex items-center gap-4">
+                <div class="p-3.5 bg-primary-50 dark:bg-primary-950/60 text-primary-600 dark:text-primary-400 rounded-xl text-2xl shrink-0">
                     💬
                 </div>
                 <div>
-                    <p class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Total Chat</p>
-                    <p class="text-2xl font-black text-gray-900 dark:text-white font-mono">{{ number_format($stats['total'], 0, ',', '.') }}</p>
+                    <p class="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Total Chat</p>
+                    <p class="text-2xl font-black text-gray-900 dark:text-white font-mono mt-0.5">{{ number_format($stats['total'], 0, ',', '.') }}</p>
                 </div>
             </div>
 
-            <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-4 shadow-sm flex items-center gap-4">
-                <div class="p-3 bg-success-50 dark:bg-success-950/50 text-success-600 dark:text-success-400 rounded-lg text-2xl">
+            <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-5 shadow-xs flex items-center gap-4">
+                <div class="p-3.5 bg-success-50 dark:bg-success-950/60 text-success-600 dark:text-success-400 rounded-xl text-2xl shrink-0">
                     ✅
                 </div>
                 <div>
-                    <p class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Transaksi Sukses</p>
-                    <p class="text-2xl font-black text-gray-900 dark:text-white font-mono">{{ number_format($stats['processed'], 0, ',', '.') }}</p>
+                    <p class="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Transaksi Sukses</p>
+                    <p class="text-2xl font-black text-gray-900 dark:text-white font-mono mt-0.5">{{ number_format($stats['processed'], 0, ',', '.') }}</p>
                 </div>
             </div>
 
-            <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-4 shadow-sm flex items-center gap-4">
-                <div class="p-3 bg-info-50 dark:bg-info-950/50 text-info-600 dark:text-info-400 rounded-lg text-2xl">
+            <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-5 shadow-xs flex items-center gap-4">
+                <div class="p-3.5 bg-info-50 dark:bg-info-950/60 text-info-600 dark:text-info-400 rounded-xl text-2xl shrink-0">
                     📸
                 </div>
                 <div>
-                    <p class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">OCR Struk / Nota</p>
-                    <p class="text-2xl font-black text-gray-900 dark:text-white font-mono">{{ number_format($stats['ocr'], 0, ',', '.') }}</p>
+                    <p class="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">OCR Struk / Nota</p>
+                    <p class="text-2xl font-black text-gray-900 dark:text-white font-mono mt-0.5">{{ number_format($stats['ocr'], 0, ',', '.') }}</p>
                 </div>
             </div>
 
-            <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-4 shadow-sm flex items-center gap-4">
-                <div class="p-3 bg-warning-50 dark:bg-warning-950/50 text-warning-600 dark:text-warning-400 rounded-lg text-2xl">
+            <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-5 shadow-xs flex items-center gap-4">
+                <div class="p-3.5 bg-warning-50 dark:bg-warning-950/60 text-warning-600 dark:text-warning-400 rounded-xl text-2xl shrink-0">
                     ↩️
                 </div>
                 <div>
-                    <p class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Dibatalkan / Undo</p>
-                    <p class="text-2xl font-black text-gray-900 dark:text-white font-mono">{{ number_format($stats['reverted'], 0, ',', '.') }}</p>
+                    <p class="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Dibatalkan / Undo</p>
+                    <p class="text-2xl font-black text-gray-900 dark:text-white font-mono mt-0.5">{{ number_format($stats['reverted'], 0, ',', '.') }}</p>
                 </div>
             </div>
         </div>
