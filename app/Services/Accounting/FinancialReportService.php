@@ -113,13 +113,18 @@ class FinancialReportService
         $otherCurrentAssets = $this->getAccountsWithBalanceAsOf(AccountType::Asset, AccountCategory::OtherCurrentAsset, $asOf);
         $fixedAssets = $this->getAccountsWithBalanceAsOf(AccountType::Asset, AccountCategory::FixedAsset, $asOf);
 
-        $totalAssets = (float) ($cashAndBank->sum('balance') + $receivables->sum('balance') + $otherCurrentAssets->sum('balance') + $fixedAssets->sum('balance'));
+        $cashSum = (float) $cashAndBank->sum(fn ($a) => (float) ($a->as_of_balance ?? $a->balance));
+        $recvSum = (float) $receivables->sum(fn ($a) => (float) ($a->as_of_balance ?? $a->balance));
+        $otherSum = (float) $otherCurrentAssets->sum(fn ($a) => (float) ($a->as_of_balance ?? $a->balance));
+        $fixedSum = (float) $fixedAssets->sum(fn ($a) => (float) ($a->as_of_balance ?? $a->balance));
+
+        $totalAssets = $cashSum + $recvSum + $otherSum + $fixedSum;
 
         $assetGroups = [
-            ['name' => 'Kas & Bank', 'accounts' => $cashAndBank, 'subtotal' => (float) $cashAndBank->sum('balance')],
-            ['name' => 'Piutang', 'accounts' => $receivables, 'subtotal' => (float) $receivables->sum('balance')],
-            ['name' => 'Aset Lancar Lainnya', 'accounts' => $otherCurrentAssets, 'subtotal' => (float) $otherCurrentAssets->sum('balance')],
-            ['name' => 'Aset Tetap', 'accounts' => $fixedAssets, 'subtotal' => (float) $fixedAssets->sum('balance')],
+            ['name' => 'Kas & Bank', 'accounts' => $cashAndBank, 'subtotal' => $cashSum],
+            ['name' => 'Piutang', 'accounts' => $receivables, 'subtotal' => $recvSum],
+            ['name' => 'Aset Lancar Lainnya', 'accounts' => $otherCurrentAssets, 'subtotal' => $otherSum],
+            ['name' => 'Aset Tetap', 'accounts' => $fixedAssets, 'subtotal' => $fixedSum],
         ];
 
         // 2. Liabilities
@@ -128,24 +133,32 @@ class FinancialReportService
         $otherCurrentLiabilities = $this->getAccountsWithBalanceAsOf(AccountType::Liability, AccountCategory::OtherCurrentLiability, $asOf);
         $longTermLiabilities = $this->getAccountsWithBalanceAsOf(AccountType::Liability, AccountCategory::LongTermLiability, $asOf);
 
-        $totalLiabilities = (float) ($accountsPayable->sum('balance') + $creditCards->sum('balance') + $otherCurrentLiabilities->sum('balance') + $longTermLiabilities->sum('balance'));
+        $apSum = (float) $accountsPayable->sum(fn ($a) => (float) ($a->as_of_balance ?? $a->balance));
+        $ccSum = (float) $creditCards->sum(fn ($a) => (float) ($a->as_of_balance ?? $a->balance));
+        $otherLiabSum = (float) $otherCurrentLiabilities->sum(fn ($a) => (float) ($a->as_of_balance ?? $a->balance));
+        $longTermSum = (float) $longTermLiabilities->sum(fn ($a) => (float) ($a->as_of_balance ?? $a->balance));
+
+        $totalLiabilities = $apSum + $ccSum + $otherLiabSum + $longTermSum;
 
         $liabilityGroups = [
-            ['name' => 'Hutang Usaha / Pribadi', 'accounts' => $accountsPayable, 'subtotal' => (float) $accountsPayable->sum('balance')],
-            ['name' => 'Kartu Kredit / Paylater', 'accounts' => $creditCards, 'subtotal' => (float) $creditCards->sum('balance')],
-            ['name' => 'Kewajiban Lancar Lainnya', 'accounts' => $otherCurrentLiabilities, 'subtotal' => (float) $otherCurrentLiabilities->sum('balance')],
-            ['name' => 'Kewajiban Jangka Panjang', 'accounts' => $longTermLiabilities, 'subtotal' => (float) $longTermLiabilities->sum('balance')],
+            ['name' => 'Hutang Usaha / Pribadi', 'accounts' => $accountsPayable, 'subtotal' => $apSum],
+            ['name' => 'Kartu Kredit / Paylater', 'accounts' => $creditCards, 'subtotal' => $ccSum],
+            ['name' => 'Kewajiban Lancar Lainnya', 'accounts' => $otherCurrentLiabilities, 'subtotal' => $otherLiabSum],
+            ['name' => 'Kewajiban Jangka Panjang', 'accounts' => $longTermLiabilities, 'subtotal' => $longTermSum],
         ];
 
         // 3. Equity
         $equityAccounts = $this->getAccountsWithBalanceAsOf(AccountType::Equity, AccountCategory::Equity, $asOf);
         $retainedEarningsAccounts = $this->getAccountsWithBalanceAsOf(AccountType::Equity, AccountCategory::RetainedEarnings, $asOf);
 
-        $rawEquityTotal = (float) ($equityAccounts->sum('balance') + $retainedEarningsAccounts->sum('balance'));
+        $equitySum = (float) $equityAccounts->sum(fn ($a) => (float) ($a->as_of_balance ?? $a->balance));
+        $retainedSum = (float) $retainedEarningsAccounts->sum(fn ($a) => (float) ($a->as_of_balance ?? $a->balance));
+
+        $rawEquityTotal = $equitySum + $retainedSum;
 
         // Current period profit/loss (all revenues minus all expenses up to asOf)
-        $allRevenues = (float) Account::where('type', AccountType::Revenue)->get()->sum(fn ($acc) => $acc->getBalanceAtDate($asOf));
-        $allExpenses = (float) Account::where('type', AccountType::Expense)->get()->sum(fn ($acc) => $acc->getBalanceAtDate($asOf));
+        $allRevenues = (float) Account::where('type', AccountType::Revenue->value)->whereNotNull('parent_id')->get()->sum(fn ($acc) => $acc->getBalanceAtDate($asOf));
+        $allExpenses = (float) Account::where('type', AccountType::Expense->value)->whereNotNull('parent_id')->get()->sum(fn ($acc) => $acc->getBalanceAtDate($asOf));
         $currentPeriodNetProfit = $allRevenues - $allExpenses;
 
         $totalEquity = $rawEquityTotal + $currentPeriodNetProfit;
@@ -160,7 +173,7 @@ class FinancialReportService
             'liability_groups' => $liabilityGroups,
             'total_liabilities' => $totalLiabilities,
             'equity_accounts' => $equityAccounts,
-            'retained_earnings' => (float) $retainedEarningsAccounts->sum('balance'),
+            'retained_earnings' => $retainedSum,
             'current_period_net_profit' => $currentPeriodNetProfit,
             'total_equity' => $totalEquity,
             'total_liabilities_and_equity' => $totalLiabilitiesAndEquity,
@@ -169,7 +182,15 @@ class FinancialReportService
     }
 
     /**
-     * Generate Mekari-style Cash Flow (Laporan Arus Kas).
+     * Alias for getCashFlowStatement.
+     */
+    public function getCashFlow(CarbonInterface|string|null $startDate = null, CarbonInterface|string|null $endDate = null): array
+    {
+        return $this->getCashFlowStatement($startDate, $endDate);
+    }
+
+    /**
+     * Generate Direct Method Cash Flow Statement (Laporan Arus Kas).
      *
      * @return array{
      *     start_date: string,
@@ -188,14 +209,17 @@ class FinancialReportService
      *     ending_cash: float
      * }
      */
-    public function getCashFlow(CarbonInterface|string $startDate, CarbonInterface|string $endDate): array
+    public function getCashFlowStatement(CarbonInterface|string|null $startDate = null, CarbonInterface|string|null $endDate = null): array
     {
-        $start = is_string($startDate) ? Carbon::parse($startDate)->startOfDay() : $startDate->copy()->startOfDay();
-        $end = is_string($endDate) ? Carbon::parse($endDate)->endOfDay() : $endDate->copy()->endOfDay();
+        $start = $startDate ? (is_string($startDate) ? Carbon::parse($startDate)->startOfDay() : $startDate->copy()->startOfDay()) : now()->startOfMonth();
+        $end = $endDate ? (is_string($endDate) ? Carbon::parse($endDate)->endOfDay() : $endDate->copy()->endOfDay()) : now()->endOfMonth();
 
-        $cashAccounts = Account::where('category', AccountCategory::CashAndBank)->pluck('id');
+        $cashAccounts = Account::where('category', AccountCategory::CashAndBank->value)
+            ->whereNotNull('parent_id')
+            ->pluck('id')
+            ->toArray();
 
-        // Cash & Bank balances
+        // Beginning & Ending Cash
         $beginningCash = (float) Account::whereIn('id', $cashAccounts)->get()->sum(fn ($acc) => $acc->getBalanceAtDate($start->copy()->subDay()->endOfDay()));
         $endingCash = (float) Account::whereIn('id', $cashAccounts)->get()->sum(fn ($acc) => $acc->getBalanceAtDate($end));
 
@@ -207,7 +231,7 @@ class FinancialReportService
                 $q->whereBetween('date', [$start->toDateString(), $end->toDateString()]);
             })
             ->whereHas('journalEntry.items.account', function (Builder $q) {
-                $q->where('type', AccountType::Revenue);
+                $q->where('type', AccountType::Revenue->value);
             })
             ->sum('debit');
 
@@ -217,7 +241,7 @@ class FinancialReportService
                 $q->whereBetween('date', [$start->toDateString(), $end->toDateString()]);
             })
             ->whereHas('journalEntry.items.account', function (Builder $q) {
-                $q->where('type', AccountType::Expense);
+                $q->where('type', AccountType::Expense->value);
             })
             ->sum('credit');
 
@@ -230,7 +254,7 @@ class FinancialReportService
                 $q->whereBetween('date', [$start->toDateString(), $end->toDateString()]);
             })
             ->whereHas('journalEntry.items.account', function (Builder $q) {
-                $q->where('category', AccountCategory::FixedAsset);
+                $q->where('category', AccountCategory::FixedAsset->value);
             })
             ->sum('debit');
 
@@ -240,7 +264,7 @@ class FinancialReportService
                 $q->whereBetween('date', [$start->toDateString(), $end->toDateString()]);
             })
             ->whereHas('journalEntry.items.account', function (Builder $q) {
-                $q->where('category', AccountCategory::FixedAsset);
+                $q->where('category', AccountCategory::FixedAsset->value);
             })
             ->sum('credit');
 
@@ -253,7 +277,7 @@ class FinancialReportService
                 $q->whereBetween('date', [$start->toDateString(), $end->toDateString()]);
             })
             ->whereHas('journalEntry.items.account', function (Builder $q) {
-                $q->whereIn('type', [AccountType::Equity, AccountType::Liability]);
+                $q->whereIn('type', [AccountType::Equity->value, AccountType::Liability->value]);
             })
             ->sum('debit');
 
@@ -263,7 +287,7 @@ class FinancialReportService
                 $q->whereBetween('date', [$start->toDateString(), $end->toDateString()]);
             })
             ->whereHas('journalEntry.items.account', function (Builder $q) {
-                $q->whereIn('type', [AccountType::Equity, AccountType::Liability]);
+                $q->whereIn('type', [AccountType::Equity->value, AccountType::Liability->value]);
             })
             ->sum('credit');
 
@@ -433,11 +457,13 @@ class FinancialReportService
             ->orderBy('code')
             ->get()
             ->map(function (Account $account) use ($asOfDate) {
-                $account->balance = $account->getBalanceAtDate($asOfDate);
+                $bal = $account->getBalanceAtDate($asOfDate);
+                $account->as_of_balance = $bal;
+                $account->balance = $bal;
 
                 return $account;
             })
-            ->filter(fn ($acc) => abs($acc->balance) > 0.001)
+            ->filter(fn ($acc) => abs($acc->as_of_balance) > 0.001)
             ->values();
     }
 }

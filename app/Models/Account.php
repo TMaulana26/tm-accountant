@@ -149,8 +149,9 @@ class Account extends Model
         $query = $this->journalItems();
 
         if ($date) {
-            $query->whereHas('journalEntry', function (Builder $q) use ($date) {
-                $q->where('date', '<=', $date->format('Y-m-d'));
+            $dateStr = $date->format('Y-m-d');
+            $query->whereHas('journalEntry', function (Builder $q) use ($dateStr) {
+                $q->whereDate('date', '<=', $dateStr);
             });
         }
 
@@ -168,9 +169,13 @@ class Account extends Model
      */
     public function getMovementBetween(CarbonInterface $startDate, CarbonInterface $endDate): float
     {
+        $startStr = $startDate->format('Y-m-d');
+        $endStr = $endDate->format('Y-m-d');
+
         $totals = $this->journalItems()
-            ->whereHas('journalEntry', function (Builder $q) use ($startDate, $endDate) {
-                $q->whereBetween('date', [$startDate->format('Y-m-d'), $endDate->format('Y-m-d')]);
+            ->whereHas('journalEntry', function (Builder $q) use ($startStr, $endStr) {
+                $q->whereDate('date', '>=', $startStr)
+                    ->whereDate('date', '<=', $endStr);
             })
             ->selectRaw('COALESCE(SUM(debit), 0) as total_debit, COALESCE(SUM(credit), 0) as total_credit')
             ->first();
