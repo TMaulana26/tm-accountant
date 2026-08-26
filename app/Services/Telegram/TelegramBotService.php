@@ -820,6 +820,30 @@ HELP;
     }
 
     /**
+     * Convert markdown formatting from AI into valid Telegram HTML.
+     */
+    public function formatMarkdownToTelegramHtml(string $text): string
+    {
+        // 1. Convert code blocks: ```lang ... ``` or ``` ... ```
+        $text = preg_replace('/```(?:[a-zA-Z0-9_\-]+)?\n?(.*?)```/s', '<pre>$1</pre>', $text);
+
+        // 2. Convert inline code: `code`
+        $text = preg_replace('/`([^`]+)`/', '<code>$1</code>', $text);
+
+        // 3. Convert bold: **text** or __text__
+        $text = preg_replace('/\*\*(.*?)\*\*/s', '<b>$1</b>', $text);
+        $text = preg_replace('/__(.*?)__/s', '<b>$1</b>', $text);
+
+        // 4. Convert markdown links: [text](url)
+        $text = preg_replace('/\[(.*?)\]\(((?:https?:\/\/)[^\)]+)\)/', '<a href="$2">$1</a>', $text);
+
+        // 5. Convert bullet points: - or * at start of line to bullet character
+        $text = preg_replace('/^[\*\-]\s+/m', '• ', $text);
+
+        return $text;
+    }
+
+    /**
      * Send HTTP POST to Telegram sendMessage API.
      */
     public function sendMessage(string $chatId, string $text, ?array $replyMarkup = null, string $parseMode = 'HTML'): array
@@ -830,9 +854,11 @@ HELP;
             return [];
         }
 
+        $formattedText = ($parseMode === 'HTML') ? $this->formatMarkdownToTelegramHtml($text) : $text;
+
         $payload = [
             'chat_id' => $chatId,
-            'text' => $text,
+            'text' => $formattedText,
             'parse_mode' => $parseMode,
         ];
 
@@ -841,8 +867,17 @@ HELP;
         }
 
         $response = Http::post("https://api.telegram.org/bot{$this->botToken}/sendMessage", $payload);
+        $result = $response->json() ?? [];
 
-        return $response->json() ?? [];
+        // Fallback: If Telegram failed due to unparseable HTML tags, retry as plain text
+        if (! ($result['ok'] ?? false) && $parseMode === 'HTML' && str_contains($result['description'] ?? '', "can't parse entities")) {
+            unset($payload['parse_mode']);
+            $payload['text'] = strip_tags($formattedText);
+            $retryResponse = Http::post("https://api.telegram.org/bot{$this->botToken}/sendMessage", $payload);
+            $result = $retryResponse->json() ?? [];
+        }
+
+        return $result;
     }
 
     /**
@@ -854,10 +889,12 @@ HELP;
             return [];
         }
 
+        $formattedText = ($parseMode === 'HTML') ? $this->formatMarkdownToTelegramHtml($text) : $text;
+
         $payload = [
             'chat_id' => $chatId,
             'message_id' => $messageId,
-            'text' => $text,
+            'text' => $formattedText,
             'parse_mode' => $parseMode,
         ];
 
@@ -866,8 +903,17 @@ HELP;
         }
 
         $response = Http::post("https://api.telegram.org/bot{$this->botToken}/editMessageText", $payload);
+        $result = $response->json() ?? [];
 
-        return $response->json() ?? [];
+        // Fallback: If Telegram failed due to unparseable HTML tags, retry as plain text
+        if (! ($result['ok'] ?? false) && $parseMode === 'HTML' && str_contains($result['description'] ?? '', "can't parse entities")) {
+            unset($payload['parse_mode']);
+            $payload['text'] = strip_tags($formattedText);
+            $retryResponse = Http::post("https://api.telegram.org/bot{$this->botToken}/editMessageText", $payload);
+            $result = $retryResponse->json() ?? [];
+        }
+
+        return $result;
     }
 
     /**

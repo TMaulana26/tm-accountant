@@ -237,3 +237,14 @@ test('bot appends warning when expense causes wallet to be zero or negative', fu
             str_contains($request['text'], 'Defisit / Minus');
     });
 });
+
+test('bot automatically converts markdown bold and bullets to Telegram HTML', function () {
+    $botService = app(TelegramBotService::class);
+
+    $rawMarkdown = "- 💸 **Pengeluaran** (belanja, makan)\n- 💰 **Pemasukan** (gaji)\n- `code_sample`";
+    $converted = $botService->formatMarkdownToTelegramHtml($rawMarkdown);
+
+    expect($converted)->toContain('• 💸 <b>Pengeluaran</b> (belanja, makan)')
+        ->and($converted)->toContain('• 💰 <b>Pemasukan</b> (gaji)')
+        ->and($converted)->toContain('<code>code_sample</code>');
+});
