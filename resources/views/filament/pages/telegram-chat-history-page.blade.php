@@ -1,4 +1,4 @@
-<x-filament-panels::page>
+﻿<x-filament-panels::page>
     <div class="space-y-6">
         @php
             $groupedMessages = $this->getMessages();
@@ -7,7 +7,7 @@
         <!-- Filter Form -->
         {{ $this->form }}
 
-        <!-- Messenger Chat Viewport -->
+        <!-- Messenger Chat Viewport Section -->
         <x-filament::section>
             <x-slot name="heading">
                 <div class="flex items-center gap-2">
@@ -16,12 +16,16 @@
                 </div>
             </x-slot>
 
-            <div class="bg-gray-50 dark:bg-gray-950/70 border border-gray-200 dark:border-white/10 rounded-2xl p-4 lg:p-6 min-h-[500px]">
+            <div class="rounded-2xl p-4 lg:p-6 min-h-[480px] bg-gray-100/70 dark:bg-gray-950/60 border border-gray-200 dark:border-gray-800">
                 @if($groupedMessages->isEmpty())
-                    <div class="py-24 text-center text-gray-500 dark:text-gray-400">
-                        <p class="text-5xl mb-3">💬</p>
-                        <p class="font-bold text-base text-gray-800 dark:text-gray-200">Tidak ada riwayat percakapan</p>
-                        <p class="text-xs mt-1">Gunakan filter di atas atau kirim pesan ke Telegram Bot untuk memulai pencatatan.</p>
+                    <div class="py-24 text-center">
+                        <div class="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-gray-200 dark:bg-gray-800 text-3xl mb-3 shadow-xs">
+                            💬
+                        </div>
+                        <h4 class="font-bold text-base text-gray-900 dark:text-white">Tidak ada riwayat percakapan</h4>
+                        <p class="text-xs text-gray-500 dark:text-gray-400 mt-1 max-w-sm mx-auto leading-relaxed">
+                            Gunakan filter periode di atas atau kirim pesan ke Telegram Bot Anda untuk memulai pencatatan otomatis.
+                        </p>
                     </div>
                 @else
                     <div class="space-y-8 max-w-4xl mx-auto">
@@ -102,13 +106,13 @@
                                                         @endif
                                                     </div>
 
-                                                    <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-white/10 text-gray-900 dark:text-gray-100 rounded-2xl rounded-bl-xs px-4 py-3 shadow-xs text-sm space-y-2">
+                                                    <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-gray-900 dark:text-gray-100 rounded-2xl rounded-bl-xs px-4 py-3 shadow-xs text-sm space-y-2">
                                                         <div class="prose dark:prose-invert max-w-none text-xs leading-relaxed text-gray-900 dark:text-gray-100">
                                                             {!! nl2br($msg->ai_response) !!}
                                                         </div>
 
                                                         @if($msg->journal_entry_id && $msg->journalEntry)
-                                                            <div class="pt-2 border-t border-gray-100 dark:border-white/10 flex items-center justify-between text-xs">
+                                                            <div class="pt-2 border-t border-gray-100 dark:border-gray-800 flex items-center justify-between text-xs">
                                                                 <span class="text-gray-500 dark:text-gray-400 font-medium">Tercatat di Jurnal:</span>
                                                                 <span class="font-mono font-bold text-primary-600 dark:text-primary-400">
                                                                     {{ $msg->journalEntry->entry_number }}
