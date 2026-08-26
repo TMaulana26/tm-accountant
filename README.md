@@ -1,58 +1,168 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# 💼 TM Accountant
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+> **Modern, Self-Hosted Personal Accounting & Telegram AI Bookkeeper**  
+> Powered by Laravel 11, Filament v4, WebAuthn Passkeys, Multi-Provider AI (Ollama / DeepSeek / OpenAI / Gemini), and Local Vision OCR.
 
-## About Laravel
+[![PHP 8.4](https://img.shields.io/badge/PHP-8.4-777BB4?logo=php&logoColor=white)](https://php.net)
+[![Laravel 11](https://img.shields.io/badge/Laravel-11.x-FF2D20?logo=laravel&logoColor=white)](https://laravel.com)
+[![Filament v4](https://img.shields.io/badge/Filament-v4-F59E0B?logo=filament&logoColor=white)](https://filamentphp.com)
+[![Pest](https://img.shields.io/badge/Tests-Pest%20PHP-black?logo=pest)](https://pestphp.com)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+---
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+## ✨ Key Features
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+- 🏛️ **True Double-Entry General Ledger**: GAAP & IFRS compliant Chart of Accounts (COA) with balanced debits & credits, real-time trial balance, balance sheet, income statement (P&L), and cash flow statements.
+- 🤖 **Smart Telegram AI Bookkeeper**: Natural language accounting parser with automatic expense/income/transfer classification, conversational guardrails, and instant undo actions.
+- 🌐 **Multi-Provider AI Engine**: Seamlessly switch between **100% Local Offline LLMs (Ollama / LM Studio / vLLM)** and cloud AI providers (**DeepSeek, Google Gemini, OpenAI, Groq, OpenRouter**).
+- 🧾 **Hybrid Vision OCR**: Transcribes receipts, store invoices, and bank transfer screenshots using Google Gemini Vision (Free Tier recommended) or your primary multimodal AI.
+- 📸 **Native PHP GD Image Compression**: Automatically compresses high-resolution smartphone receipt photos by **> 95%** (~60–120 KB), saving disk space while keeping text crystal clear.
+- 🔐 **Password-Only Login & WebAuthn Biometrics**: Fast authentication with identity detection and biometric Passkeys (Windows Hello, Touch ID, Face ID, Fingerprint).
+- 👛 **Wallet Setup Wizard**: 3-step onboarding wizard to register cash wallets, bank accounts, e-wallets, and opening balances with negative balance alerts.
 
-## Learning Laravel
+---
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+## 🚀 Quick Start (1-Minute Interactive CLI Setup)
 
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
-
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
-
-## Agentic Development
-
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
+Clone the repository and run the interactive installation wizard:
 
 ```bash
-composer require laravel/boost --dev
+# 1. Clone repository
+git clone https://github.com/your-username/tm-accountant.git
+cd tm-accountant
 
-php artisan boost:install
+# 2. Install PHP & Node dependencies
+composer install
+npm install && npm run build
+
+# 3. Run the Interactive Installation Wizard
+php artisan tmaccountant
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+The interactive wizard (`php artisan tmaccountant` or `php artisan tmaccountant:install`) will automatically:
+1. Generate your `APP_KEY` and create storage symlinks.
+2. Run database migrations and seed default GAAP/IFRS Chart of Accounts.
+3. Configure your Admin credentials (Name, Email, Password).
+4. Configure Telegram Bot Token & Whitelisted User IDs.
+5. Configure your preferred AI Provider (Ollama, DeepSeek, OpenAI, Gemini, etc.) and OCR settings.
 
-## Contributing
+---
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+## 🤖 Supported AI Providers
 
-## Code of Conduct
+Configure your preferred AI provider in `.env` or during the CLI setup:
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+### 1. 🦙 Ollama (100% Local, Offline & Free)
+Run open-source models completely offline on your own machine:
+```env
+AI_PROVIDER=ollama
+OLLAMA_BASE_URL=http://localhost:11434/v1
+OLLAMA_MODEL=llama3.3
+# or qwen2.5 / mistral / deepseek-r1-distill
+```
 
-## Security Vulnerabilities
+### 2. 🧠 DeepSeek AI (Recommended Cloud - Ultra Economical)
+```env
+AI_PROVIDER=deepseek
+DEEPSEEK_API_KEY=sk-your-deepseek-api-key
+DEEPSEEK_MODEL=deepseek-chat
+```
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+### 3. ✨ Google Gemini API (Multimodal & Free Tier OCR)
+```env
+AI_PROVIDER=gemini
+GEMINI_API_KEY=AIzaSy-your-gemini-key
+GEMINI_MODEL=gemini-3.7-flash
+```
 
-## License
+### 4. 🤖 OpenAI
+```env
+AI_PROVIDER=openai
+OPENAI_API_KEY=sk-proj-your-openai-key
+OPENAI_MODEL=gpt-4o-mini
+```
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+### 5. ⚡ Groq / OpenRouter / LM Studio
+```env
+# Groq
+AI_PROVIDER=groq
+GROQ_API_KEY=gsk_your-groq-key
+GROQ_MODEL=llama-3.3-70b-versatile
+
+# OpenRouter
+AI_PROVIDER=openrouter
+OPENROUTER_API_KEY=sk-or-your-openrouter-key
+OPENROUTER_MODEL=anthropic/claude-3.5-sonnet
+```
+
+---
+
+## 📸 Vision OCR Strategy for Receipts
+
+TM Accountant features a **Hybrid Vision OCR** pipeline:
+
+```env
+# Recommended: Economical 2-stage OCR pipeline (Gemini Free Tier extracts text, primary AI books entry)
+AI_OCR_MODE=gemini
+GEMINI_API_KEY=your-gemini-free-tier-api-key
+
+# Single-stage: If your primary AI model already supports Vision (e.g. GPT-4o, Gemini 3.7 Flash)
+AI_OCR_MODE=auto
+
+# Text-only (disabled image processing)
+AI_OCR_MODE=disabled
+```
+
+---
+
+## 📱 Running the Telegram Bot
+
+### Development (Long Polling)
+In local development, start the long polling worker in your terminal:
+```bash
+php artisan telegram:poll
+```
+
+### Production (Webhook)
+For production deployments with HTTPS, set your webhook URL:
+```bash
+curl -F "url=https://your-domain.com/telegram/webhook" https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook
+```
+
+### Example Telegram Interactions:
+- **Expense**: *"bought lunch padang 32k via bca"*
+- **Income**: *"salary 15m received in mandiri"*
+- **Transfer**: *"transferred 200k from bca to gopay"*
+- **Send Photo**: Attach any receipt photo or bank transfer screenshot $\rightarrow$ Auto-transcribed and journaled!
+- **Summary**: *"weekly financial summary"* or `/saldo`
+
+---
+
+## 🧪 Testing
+
+TM Accountant includes a full test suite built with **Pest PHP**:
+
+```bash
+# Run all automated tests
+php artisan test
+
+# Run specific feature tests
+php artisan test --filter=TelegramBotTest
+php artisan test --filter=ReceiptAttachmentTest
+```
+
+---
+
+## 🎨 Code Style
+
+Format the codebase using Laravel Pint:
+```bash
+vendor/bin/pint --format agent
+```
+
+---
+
+## 📄 License
+
+This project is open-sourced software licensed under the [MIT license](LICENSE).
