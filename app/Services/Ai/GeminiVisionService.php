@@ -71,7 +71,7 @@ PROMPT;
             ],
         ];
 
-        $modelsToTry = array_unique([$this->model, 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']);
+        $modelsToTry = array_unique([$this->model, 'gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite']);
         $lastException = null;
 
         foreach ($modelsToTry as $modelName) {
@@ -95,8 +95,8 @@ PROMPT;
                 Log::warning("Gemini Vision OCR attempt with model {$modelName} failed ({$response->status()}): {$errorBody}");
                 $lastException = new Exception("Gemini API Error ({$response->status()}): {$errorBody}");
 
-                // If error is 404 (model not found), loop to try next fallback model
-                if ($response->status() === 404) {
+                // If error is 404 (not found), 503 (high demand), or 429 (rate limited), loop to try next fallback model
+                if (in_array($response->status(), [404, 429, 500, 502, 503, 504])) {
                     continue;
                 }
 

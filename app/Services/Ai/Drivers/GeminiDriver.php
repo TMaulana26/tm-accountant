@@ -123,7 +123,7 @@ class GeminiDriver implements AiDriverInterface
             ],
         ];
 
-        $modelsToTry = array_unique([$this->model, 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']);
+        $modelsToTry = array_unique([$this->model, 'gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite']);
         $lastException = null;
 
         foreach ($modelsToTry as $modelName) {
@@ -141,10 +141,10 @@ class GeminiDriver implements AiDriverInterface
                 }
 
                 $error = $response->json('error.message') ?? $response->body();
-                Log::warning("Gemini model {$modelName} vision failed: {$error}");
-                $lastException = new Exception("Gemini Vision Error: {$error}");
+                Log::warning("Gemini model {$modelName} vision failed ({$response->status()}): {$error}");
+                $lastException = new Exception("Gemini Vision Error ({$response->status()}): {$error}");
 
-                if ($response->status() === 404) {
+                if (in_array($response->status(), [404, 429, 500, 502, 503, 504])) {
                     continue;
                 }
                 break;
