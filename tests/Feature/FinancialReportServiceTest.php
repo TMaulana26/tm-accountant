@@ -111,8 +111,10 @@ test('calculates accurate General Ledger (Buku Besar) with running balances', fu
 });
 
 test('calculates accurate and balanced Trial Balance (Neraca Saldo)', function () {
-    $report = $this->reportService->getTrialBalance(now()->endOfMonth());
+    $report = $this->reportService->getTrialBalance(now());
 
     expect($report['is_balanced'])->toBeTrue()
-        ->and($report['total_debit'])->toBe($report['total_credit']);
+        ->and($report['rows'])->not->toBeEmpty()
+        ->and($report['total_debit'])->toBe(65000000.0) // 50jt kas + 13jt bca + 2jt makan = 65jt
+        ->and($report['total_credit'])->toBe(65000000.0);
 });
