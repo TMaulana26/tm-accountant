@@ -1,4 +1,87 @@
 ﻿<x-filament-panels::page>
+    <style>
+        .tm-chat-viewport {
+            background-color: #f8fafc;
+            border: 1px solid #e2e8f0;
+        }
+        .dark .tm-chat-viewport {
+            background-color: #0b1120;
+            border: 1px solid #1e293b;
+        }
+
+        .tm-chat-date-pill {
+            background-color: #ffffff;
+            color: #334155;
+            border: 1px solid #cbd5e1;
+        }
+        .dark .tm-chat-date-pill {
+            background-color: #1e293b;
+            color: #e2e8f0;
+            border: 1px solid #334155;
+        }
+
+        .tm-user-bubble {
+            background-color: #2563eb !important;
+            color: #ffffff !important;
+            border-radius: 1rem 1rem 0.25rem 1rem;
+            padding: 0.75rem 1rem;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+        }
+        .tm-user-bubble p, .tm-user-bubble span {
+            color: #ffffff !important;
+        }
+
+        .tm-bot-bubble {
+            background-color: #ffffff;
+            color: #0f172a;
+            border: 1px solid #e2e8f0;
+            border-radius: 1rem 1rem 1rem 0.25rem;
+            padding: 0.85rem 1.15rem;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
+        }
+        .dark .tm-bot-bubble {
+            background-color: #1e293b;
+            color: #f8fafc;
+            border: 1px solid #334155;
+        }
+
+        .tm-bot-content {
+            font-size: 0.875rem;
+            line-height: 1.6;
+            color: inherit;
+        }
+        .tm-bot-content b, .tm-bot-content strong {
+            font-weight: 700;
+            color: inherit;
+        }
+        .tm-bot-content code {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            font-size: 0.82em;
+            padding: 0.15rem 0.35rem;
+            border-radius: 0.25rem;
+            background-color: rgba(0, 0, 0, 0.06);
+            color: #0284c7;
+            font-weight: 600;
+        }
+        .dark .tm-bot-content code {
+            background-color: rgba(255, 255, 255, 0.12);
+            color: #38bdf8;
+        }
+        .tm-bot-content pre {
+            background-color: #0f172a;
+            color: #f8fafc;
+            padding: 0.75rem;
+            border-radius: 0.5rem;
+            overflow-x: auto;
+            margin: 0.5rem 0;
+        }
+        .dark .tm-bot-content pre {
+            background-color: #020617;
+            color: #f8fafc;
+            border: 1px solid #1e293b;
+        }
+    </style>
+
     <div class="space-y-6">
         @php
             $groupedMessages = $this->getMessages();
@@ -16,7 +99,7 @@
                 </div>
             </x-slot>
 
-            <div class="rounded-2xl p-4 lg:p-6 min-h-[480px] bg-gray-100/70 dark:bg-gray-950/60 border border-gray-200 dark:border-gray-800">
+            <div class="tm-chat-viewport rounded-2xl p-4 lg:p-6 min-h-[480px]">
                 @if($groupedMessages->isEmpty())
                     <div class="py-24 text-center">
                         <div class="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-gray-200 dark:bg-gray-800 text-3xl mb-3 shadow-xs">
@@ -32,7 +115,7 @@
                         @foreach($groupedMessages as $dateString => $messages)
                             <!-- Date Header Separator -->
                             <div class="flex items-center justify-center my-4">
-                                <span class="px-4 py-1.5 rounded-full text-xs font-bold bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-700 shadow-xs">
+                                <span class="tm-chat-date-pill px-4 py-1.5 rounded-full text-xs font-bold shadow-xs">
                                     📅 {{ \Carbon\Carbon::parse($dateString)->translatedFormat('l, d F Y') }}
                                 </span>
                             </div>
@@ -48,10 +131,10 @@
                                                     👤 {{ $msg->from_username ? '@'.$msg->from_username : 'Pemilik Pembukuan' }} • {{ $msg->created_at->format('H:i') }}
                                                 </span>
 
-                                                <div class="bg-primary-600 text-white rounded-2xl rounded-br-xs px-4 py-2.5 shadow-sm text-sm">
+                                                <div class="tm-user-bubble text-sm">
                                                     @if($msg->receipt_image)
                                                         <div class="mb-2">
-                                                            <a href="{{ Storage::disk('public')->url($msg->receipt_image) }}" target="_blank" class="block group relative overflow-hidden rounded-lg border border-white/20">
+                                                            <a href="{{ Storage::disk('public')->url($msg->receipt_image) }}" target="_blank" class="block group relative overflow-hidden rounded-lg border border-white/30">
                                                                 <img src="{{ Storage::disk('public')->url($msg->receipt_image) }}" alt="Foto Struk" class="w-44 h-32 object-cover transition group-hover:scale-105" />
                                                                 <div class="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition text-xs font-bold text-white">
                                                                     🔍 Buka Foto
@@ -63,7 +146,7 @@
                                                     <p class="whitespace-pre-wrap leading-relaxed">{{ $msg->raw_text ?: '[Mengirim Foto Struk/Nota]' }}</p>
                                                 </div>
                                             </div>
-                                            <div class="w-8 h-8 rounded-full bg-primary-100 dark:bg-primary-950 flex items-center justify-center text-xs font-bold text-primary-700 dark:text-primary-300 shrink-0 border border-primary-200 dark:border-primary-800">
+                                            <div class="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-950 flex items-center justify-center text-xs font-bold text-blue-700 dark:text-blue-300 shrink-0 border border-blue-200 dark:border-blue-800">
                                                 {{ strtoupper(substr($msg->from_username ?: 'U', 0, 2)) }}
                                             </div>
                                         </div>
@@ -106,15 +189,15 @@
                                                         @endif
                                                     </div>
 
-                                                    <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-gray-900 dark:text-gray-100 rounded-2xl rounded-bl-xs px-4 py-3 shadow-xs text-sm space-y-2">
-                                                        <div class="prose dark:prose-invert max-w-none text-xs leading-relaxed text-gray-900 dark:text-gray-100">
+                                                    <div class="tm-bot-bubble text-sm space-y-2">
+                                                        <div class="tm-bot-content">
                                                             {!! nl2br($msg->ai_response) !!}
                                                         </div>
 
                                                         @if($msg->journal_entry_id && $msg->journalEntry)
-                                                            <div class="pt-2 border-t border-gray-100 dark:border-gray-800 flex items-center justify-between text-xs">
+                                                            <div class="pt-2 border-t border-gray-200 dark:border-gray-700/60 flex items-center justify-between text-xs">
                                                                 <span class="text-gray-500 dark:text-gray-400 font-medium">Tercatat di Jurnal:</span>
-                                                                <span class="font-mono font-bold text-primary-600 dark:text-primary-400">
+                                                                <span class="font-mono font-bold text-blue-600 dark:text-blue-400">
                                                                     {{ $msg->journalEntry->entry_number }}
                                                                 </span>
                                                             </div>
