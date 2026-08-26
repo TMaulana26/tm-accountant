@@ -71,16 +71,27 @@ PROMPT;
             ],
         ];
 
-        $modelsToTry = array_unique([$this->model, 'gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite']);
+        $modelsToTry = array_unique([$this->model, 'gemini-3.7-flash', 'gemini-3.5-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite']);
         $lastException = null;
 
         foreach ($modelsToTry as $modelName) {
             try {
                 $endpoint = "{$this->baseUrl}/models/{$modelName}:generateContent?key={$this->apiKey}";
 
-                $response = Http::timeout($this->timeout)
+                // Disable deep thinking latency overhead on Gemini 3.7 for near-instant OCR
+                $generationConfig = ['temperature' => 0.1];
+                if (str_contains($modelName, '3.7')) {
+                    $generationConfig['thinkingConfig'] = ['thinkingBudget' => 0];
+                }
+
+                $modelPayload = [
+                    'contents' => $payload['contents'],
+                    'generationConfig' => $generationConfig,
+                ];
+
+                $response = Http::timeout(15)
                     ->withHeaders(['Content-Type' => 'application/json'])
-                    ->post($endpoint, $payload);
+                    ->post($endpoint, $modelPayload);
 
                 if ($response->successful()) {
                     $json = $response->json();

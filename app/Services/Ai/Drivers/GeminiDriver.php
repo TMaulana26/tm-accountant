@@ -123,15 +123,26 @@ class GeminiDriver implements AiDriverInterface
             ],
         ];
 
-        $modelsToTry = array_unique([$this->model, 'gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite']);
+        $modelsToTry = array_unique([$this->model, 'gemini-3.7-flash', 'gemini-3.5-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite']);
         $lastException = null;
 
         foreach ($modelsToTry as $modelName) {
             try {
                 $tryEndpoint = "{$this->baseUrl}/models/{$modelName}:generateContent?key={$this->apiKey}";
-                $response = Http::timeout($this->timeout)
+
+                $generationConfig = ['temperature' => 0.1];
+                if (str_contains($modelName, '3.7')) {
+                    $generationConfig['thinkingConfig'] = ['thinkingBudget' => 0];
+                }
+
+                $modelPayload = [
+                    'contents' => $payload['contents'],
+                    'generationConfig' => $generationConfig,
+                ];
+
+                $response = Http::timeout(15)
                     ->withHeaders(['Content-Type' => 'application/json'])
-                    ->post($tryEndpoint, $payload);
+                    ->post($tryEndpoint, $modelPayload);
 
                 if ($response->successful()) {
                     $text = $response->json('candidates.0.content.parts.0.text');
