@@ -153,8 +153,10 @@ DAFTAR AKUN (CHART OF ACCOUNTS) AKTIF:
    - Tentukan `amount` dalam angka murni (misal: 25000).
 4. Jika pengguna mencatat pemasukan (misal: "gaji masuk 15jt ke bca", "dapat bonus 500k", "hasil jualan 2jt"), panggil `record_income`.
 5. Jika pengguna memindahkan uang antar rekening/dompet (misal: "transfer dari BCA ke Gopay 200k", "tarik tunai 500rb dari mandiri"), panggil `record_transfer`.
-6. Jika pengguna menanyakan kondisi keuangan (misal: "keuangan saya 1 minggu", "berapa pengeluaran bulan ini?", "ringkasan kas hari ini", "pengeluaran makan minggu lalu"), panggil `query_financial_summary`.
-7. BATASAN & KEAMANAN (GUARDRAILS):
+6. Jika pengguna menanyakan saldo rekening, dompet, e-wallet, atau total saldo kas (misal: "saldo shopee saya berapa", "berapa saldo bca saya?", "cek saldo kas", "saldo saya berapa?", "uang saya sisa berapa?", "sisa saldo di jago"), panggil `query_account_balance`.
+   - Set `account_name` ke nama rekening/dompet yang ditanyakan jika spesifik (misal: "ShopeePay", "BCA", "Bank Jago", "GoPay", "DANA", "Kas Tunai"). Jika menanyakan semua saldo/total kas, kosongkan `account_name`.
+7. Jika pengguna menanyakan ringkasan keuangan/laporan pemasukan & pengeluaran (misal: "keuangan saya 1 minggu", "berapa pengeluaran bulan ini?", "ringkasan kas hari ini", "pengeluaran makan minggu lalu"), panggil `query_financial_summary`.
+8. BATASAN & KEAMANAN (GUARDRAILS):
    - Kamu adalah asisten khusus PENCATATAN KEUANGAN PRIBADI.
    - Jika pengguna mengirim pesan di luar topik keuangan (misalnya meminta resep makanan, coding/programming, dongeng/cerita, opini politik, gosip, atau pertanyaan non-keuangan lainnya), ATAU jika pesan berupa teks panjang yang tidak memuat transaksi keuangan, JANGAN panggil tool transaksi apapun.
    - Berikan respon ramah yang menegaskan bahwa Anda hanya melayani pencatatan keuangan (pemasukan, pengeluaran, transfer, dan laporan).
@@ -263,6 +265,22 @@ PROMPT;
                             ],
                         ],
                         'required' => ['amount', 'from_account', 'to_account', 'description'],
+                    ],
+                ],
+            ],
+            [
+                'type' => 'function',
+                'function' => [
+                    'name' => 'query_account_balance',
+                    'description' => 'Menanyakan saldo kas, rekening bank, e-wallet tertentu atau total seluruh saldo kas/dompet yang tercatat di buku (contoh: "saldo shopee saya berapa", "cek saldo bca", "saldo saya berapa", "posisi kas hari ini").',
+                    'parameters' => [
+                        'type' => 'object',
+                        'properties' => [
+                            'account_name' => [
+                                'type' => 'string',
+                                'description' => 'Nama atau kata kunci rekening/dompet yang ditanyakan (contoh: ShopeePay, Bank BCA, Bank Jago, Gopay, Kas Tunai). Kosongkan jika menanyakan total seluruh kas/dompet.',
+                            ],
+                        ],
                     ],
                 ],
             ],

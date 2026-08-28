@@ -174,6 +174,10 @@ class TelegramBotService
                     $this->executeQueryFinancialSummary($chatId, $params, $telegramLog);
                     break;
 
+                case 'query_account_balance':
+                    $this->executeQueryAccountBalance($chatId, $params, $telegramLog);
+                    break;
+
                 default:
                     $reply = $aiResult['reply_text'] ?? null;
                     if (! empty($reply)) {
@@ -596,6 +600,42 @@ class TelegramBotService
 
         $this->sendMessage($chatId, $text);
         $log->update(['ai_response' => $text]);
+    }
+
+    /**
+     * Handle Account Balance query (single account or all wallets).
+     */
+    protected function executeQueryAccountBalance(string $chatId, array $params, TelegramMessage $log): void
+    {
+        $accountKeyword = trim($params['account_name'] ?? '');
+
+        if (! empty($accountKeyword)) {
+            // Find specific cash/bank account by name or code
+            $account = Account::where('category', AccountCategory::CashAndBank)
+                ->where(function ($q) use ($accountKeyword) {
+                    $q->where('name', 'like', "%{$accountKeyword}%")
+                        ->orWhere('code', 'like', "%{$accountKeyword}%");
+                })
+                ->where('is_active', true)
+                ->first();
+
+            if ($account) {
+                $formattedBal = 'Rp '.number_format($account->balance, 0, ',', '.');
+                $text = "💳 <b>INFORMASI SALDO AKUN</b>\n━━━━━━━━━━━━━━━━━━━━\n\n"
+                    ."🏦 <b>Nama Akun:</b> [{$account->code}] {$account->name}\n"
+                    ."💰 <b>Saldo Terkini:</b> <code>{$formattedBal}</code>\n\n"
+                    .'<i>💡 Saldo di atas dihitung berdasarkan seluruh catatan transaksi yang telah dibukukan.</i>';
+
+                $this->sendMessage($chatId, $text);
+                $log->update(['ai_response' => $text]);
+
+                return;
+            }
+        }
+
+        // Fallback or general balance summary if not specific or not found
+        $this->sendBalanceSummary($chatId);
+        $log->update(['ai_response' => 'Summary of all cash and bank accounts sent']);
     }
 
     /**

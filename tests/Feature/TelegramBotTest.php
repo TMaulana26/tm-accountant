@@ -248,3 +248,36 @@ test('bot automatically converts markdown bold and bullets to Telegram HTML', fu
         ->and($converted)->toContain('• 💰 <b>Pemasukan</b> (gaji)')
         ->and($converted)->toContain('<code>code_sample</code>');
 });
+
+test('bot queries single account balance from natural language question', function () {
+    $mockAi = mock(AiServiceManager::class);
+    $mockAi->shouldReceive('processMessage')
+        ->once()
+        ->with('Saldo shopee saya berapa kang')
+        ->andReturn([
+            'intent' => 'query_account_balance',
+            'parameters' => [
+                'account_name' => 'Kas Tunai',
+            ],
+            'reply_text' => null,
+            'raw_response' => [],
+        ]);
+
+    $this->app->instance(AiServiceManager::class, $mockAi);
+
+    $botService = app(TelegramBotService::class);
+    $botService->handleUpdate([
+        'message' => [
+            'message_id' => 401,
+            'chat_id' => 123456789,
+            'from' => ['id' => 123456789, 'username' => 'owner'],
+            'text' => 'Saldo shopee saya berapa kang',
+        ],
+    ]);
+
+    Http::assertSent(function ($request) {
+        return str_contains($request->url(), 'sendMessage') &&
+            str_contains($request['text'], 'INFORMASI SALDO AKUN') &&
+            str_contains($request['text'], 'Kas Tunai');
+    });
+});
