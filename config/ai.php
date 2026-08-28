@@ -40,6 +40,14 @@ return [
     */
     'providers' => [
 
+        'bai' => [
+            'base_url' => env('BAI_BASE_URL', 'https://api.b.ai/v1'),
+            'api_key' => env('BAI_API_KEY', env('AI_API_KEY', '')),
+            'model' => env('BAI_MODEL', 'deepseek-v4-flash-vision-exp'),
+            'supports_vision' => true,
+            'driver' => 'openai_compatible',
+        ],
+
         'deepseek' => [
             'base_url' => env('DEEPSEEK_BASE_URL', 'https://api.deepseek.com'),
             'api_key' => env('DEEPSEEK_API_KEY', env('AI_API_KEY', '')),
