@@ -170,10 +170,16 @@
                                                             <x-filament::badge color="success" size="sm">💰 Pemasukan</x-filament::badge>
                                                         @elseif($msg->intent === 'record_transfer')
                                                             <x-filament::badge color="info" size="sm">🔄 Transfer</x-filament::badge>
-                                                        @elseif($msg->intent === 'check_balance')
+                                                        @elseif($msg->intent === 'query_account_balance' || $msg->intent === 'check_balance')
                                                             <x-filament::badge color="warning" size="sm">💳 Saldo</x-filament::badge>
-                                                        @elseif($msg->intent === 'financial_report')
+                                                        @elseif($msg->intent === 'query_financial_summary' || $msg->intent === 'financial_report')
                                                             <x-filament::badge color="primary" size="sm">📊 Laporan</x-filament::badge>
+                                                        @elseif($msg->intent === 'help')
+                                                            <x-filament::badge color="info" size="sm">ℹ️ Bantuan</x-filament::badge>
+                                                        @elseif($msg->intent === 'set_default_wallet')
+                                                            <x-filament::badge color="warning" size="sm">⭐ Dompet</x-filament::badge>
+                                                        @elseif($msg->intent === 'general_chat')
+                                                            <x-filament::badge color="gray" size="sm">💬 Chat</x-filament::badge>
                                                         @else
                                                             <x-filament::badge color="gray" size="sm">{{ $msg->intent ?: 'Bot' }}</x-filament::badge>
                                                         @endif

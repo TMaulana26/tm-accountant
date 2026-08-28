@@ -100,41 +100,6 @@ class TelegramBotService
             return;
         }
 
-        // Command: /start or /help
-        if (in_array(strtolower($text), ['/start', '/help', 'help', 'bantuan'])) {
-            $this->sendHelpMessage($chatId);
-
-            return;
-        }
-
-        // Check if user has set up at least one wallet
-        if (! $this->hasConfiguredWallets()) {
-            $this->sendWalletsNotConfiguredMessage($chatId);
-
-            return;
-        }
-
-        // Command: /saldo
-        if (in_array(strtolower($text), ['/saldo', 'saldo', 'kas'])) {
-            $this->sendBalanceSummary($chatId);
-
-            return;
-        }
-
-        // Command: /default or /dompet
-        if (in_array(strtolower($text), ['/default', '/dompet', 'dompet', 'default'])) {
-            $this->sendDefaultWalletPicker($chatId);
-
-            return;
-        }
-
-        // Guardrail: Length check (> 300 characters without numbers)
-        if (mb_strlen($text) > 300 && ! preg_match('/\d+/', $text)) {
-            $this->sendOutOfTopicGuidance($chatId);
-
-            return;
-        }
-
         // Create initial log
         $telegramLog = TelegramMessage::create([
             'telegram_message_id' => $messageId,
@@ -144,6 +109,41 @@ class TelegramBotService
             'raw_text' => $text,
             'status' => TelegramMessageStatus::Processed,
         ]);
+
+        // Command: /start or /help
+        if (in_array(strtolower($text), ['/start', '/help', 'help', 'bantuan'])) {
+            $this->sendHelpMessage($chatId, $telegramLog);
+
+            return;
+        }
+
+        // Check if user has set up at least one wallet
+        if (! $this->hasConfiguredWallets()) {
+            $this->sendWalletsNotConfiguredMessage($chatId, $telegramLog);
+
+            return;
+        }
+
+        // Command: /saldo
+        if (in_array(strtolower($text), ['/saldo', 'saldo', 'kas'])) {
+            $this->sendBalanceSummary($chatId, $telegramLog);
+
+            return;
+        }
+
+        // Command: /default or /dompet
+        if (in_array(strtolower($text), ['/default', '/dompet', 'dompet', 'default'])) {
+            $this->sendDefaultWalletPicker($chatId, $telegramLog);
+
+            return;
+        }
+
+        // Guardrail: Length check (> 300 characters without numbers)
+        if (mb_strlen($text) > 300 && ! preg_match('/\d+/', $text)) {
+            $this->sendOutOfTopicGuidance($chatId, $telegramLog);
+
+            return;
+        }
 
         try {
             // Process through AI Provider Manager (Ollama, DeepSeek, OpenAI, etc.)
@@ -708,7 +708,7 @@ class TelegramBotService
     /**
      * Send Default Wallet picker with inline keyboard.
      */
-    protected function sendDefaultWalletPicker(string $chatId): void
+    protected function sendDefaultWalletPicker(string $chatId, ?TelegramMessage $log = null): void
     {
         $wallets = Account::wallets()->where('is_active', true)->orderBy('code')->get();
 
@@ -734,6 +734,7 @@ class TelegramBotService
         }
 
         $this->sendMessage($chatId, $text, ['inline_keyboard' => $buttons]);
+        $log?->update(['intent' => 'set_default_wallet', 'ai_response' => $text]);
     }
 
     /**
@@ -747,7 +748,7 @@ class TelegramBotService
     /**
      * Send guide message when wallets have not been configured yet.
      */
-    protected function sendWalletsNotConfiguredMessage(string $chatId): void
+    protected function sendWalletsNotConfiguredMessage(string $chatId, ?TelegramMessage $log = null): void
     {
         $webUrl = config('app.url', 'http://localhost').'/admin';
 
@@ -766,12 +767,13 @@ class TelegramBotService
         ];
 
         $this->sendMessage($chatId, $text, $keyboard);
+        $log?->update(['intent' => 'wallets_not_configured', 'ai_response' => $text]);
     }
 
     /**
      * Send Saldo Kas & Bank summary.
      */
-    protected function sendBalanceSummary(string $chatId): void
+    protected function sendBalanceSummary(string $chatId, ?TelegramMessage $log = null): void
     {
         $cashAccounts = Account::where('category', AccountCategory::CashAndBank)
             ->whereNotNull('parent_id')
@@ -780,7 +782,7 @@ class TelegramBotService
             ->get();
 
         if ($cashAccounts->isEmpty()) {
-            $this->sendWalletsNotConfiguredMessage($chatId);
+            $this->sendWalletsNotConfiguredMessage($chatId, $log);
 
             return;
         }
@@ -802,12 +804,13 @@ class TelegramBotService
         }
 
         $this->sendMessage($chatId, $text);
+        $log?->update(['intent' => 'query_account_balance', 'ai_response' => $text]);
     }
 
     /**
      * Send Help message.
      */
-    protected function sendHelpMessage(string $chatId): void
+    protected function sendHelpMessage(string $chatId, ?TelegramMessage $log = null): void
     {
         $help = <<<'HELP'
 👋 <b>Halo! Saya Asisten Akuntan Pribadi Anda.</b>
@@ -839,12 +842,13 @@ Setiap pencatatan transaksi otomatis dilengkapi tombol <b>Undo / Batal</b> jika 
 HELP;
 
         $this->sendMessage($chatId, $help);
+        $log?->update(['intent' => 'help', 'ai_response' => $help]);
     }
 
     /**
      * Send Out of Topic guidance message.
      */
-    protected function sendOutOfTopicGuidance(string $chatId): void
+    protected function sendOutOfTopicGuidance(string $chatId, ?TelegramMessage $log = null): void
     {
         $text = "🤖 <b>ASISTEN PENCATATAN KEUANGAN PRIBADI</b>\n━━━━━━━━━━━━━━━━━━━━\n\n"
             ."Maaf, saya hanya diprogram khusus untuk mencatat transaksi dan menyajikan laporan keuangan Anda.\n\n"
@@ -857,6 +861,7 @@ HELP;
             .'• <i>"keuangan saya 1 minggu"</i> (Laporan Ringkas)';
 
         $this->sendMessage($chatId, $text);
+        $log?->update(['intent' => 'general_chat', 'ai_response' => $text]);
     }
 
     /**
