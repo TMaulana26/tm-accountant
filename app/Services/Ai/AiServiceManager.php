@@ -31,7 +31,7 @@ class AiServiceManager
         }
 
         $driverType = $config['driver'] ?? 'openai_compatible';
-        $timeout = (int) config('ai.timeout', 60);
+        $timeout = (int) ($config['timeout'] ?? config('ai.timeout', 90));
 
         if ($driverType === 'gemini') {
             $this->drivers[$name] = new GeminiDriver(
@@ -86,15 +86,19 @@ class AiServiceManager
 
         // Combine OCR Text with user caption
         $combinedPrompt = "Berikut adalah hasil pembacaan OCR dari struk/bukti transaksi yang dikirim pengguna:\n\n"
-            ."--- HASIL OCR NOTA/STRUK ---\n"
+            ."--- HASIL OCR NOTA/STRUK/BUKTI PEMBAYARAN ---\n"
             .$ocrText."\n"
             ."--- AKHIR HASIL OCR ---\n";
 
         if (! empty($caption)) {
-            $combinedPrompt .= "\nCatatan Tambahan dari Pengguna (Caption):\n{$caption}\n";
+            $combinedPrompt .= "\nCatatan Tambahan / Caption dari Pengguna (PRIORITAS UTAMA):\n\"{$caption}\"\n"
+                ."\n⚠️ ATURAN PRIORITAS CAPTION PENGGUNA:"
+                ."\n1. SUMBER DANA / PEMBAYARAN: Jika pengguna menulis nama bank/dompet di caption (misal: 'dari bank Jago', 'pakai BCA', 'dari Gopay', 'pakai Tunai'), kamu WAJIB menetapkan `payment_account` ke akun tersebut (OVERRIDE nama acquirer/merchant di struk)."
+                ."\n2. KETERANGAN BARANG: Jika pengguna menulis nama barang/tujuan transaksi (misal: 'Beli pedal sepeda lipat'), gunakan keterangan tersebut sebagai `description` transaksi."
+                ."\n3. AKUN BEBAN: Pilih akun beban yang paling sesuai dengan barang yang dibeli.";
         }
 
-        $combinedPrompt .= "\nInstruksi: Tentukan transaksi keuangan yang sesuai (pengeluaran, pemasukan, atau transfer antar rekening), pilih akun beban/pendapatan yang paling tepat, dan catat transaksi ini.";
+        $combinedPrompt .= "\n\nInstruksi: Tentukan transaksi keuangan yang sesuai (pengeluaran, pemasukan, atau transfer antar rekening), pilih akun beban/pendapatan dan sumber dana yang tepat, lalu panggil tool transaksi.";
 
         $aiResult = $this->processMessage($combinedPrompt);
         $aiResult['ocr_text'] = $ocrText;
@@ -140,14 +144,17 @@ DAFTAR AKUN (CHART OF ACCOUNTS) AKTIF:
 1. PANGGILAN & GAYA BAHASA:
    - Nama pemilik/pengguna buku kas ini adalah: **{$ownerName}**.
    - Panggil pengguna dengan sapaan akrab, ramah, dan santun (misal: "Kang {$ownerName}" atau sebutan ramah yang sesuai).
-2. Jika pengguna mencatat pengeluaran (misal: "beli telur 25k", "bensin 50rb pake bca", "makan siang 35k"), panggil `record_expense`.
+2. PRIORITAS UTAMA: PESAN / CAPTION PENGGUNA (OVERRIDE STRUK):
+   - Jika pengguna menyebutkan rekening/dompet (misal: "dari bank Jago", "pakai BCA", "dari DANA", "pake Gopay", "tunai"), kamu WAJIB menetapkan `payment_account` / `deposit_account` ke akun yang disebut pengguna tersebut, BUKAN teks acquirer/gateway di struk!
+   - Jika pengguna menyebutkan keterangan barang spesifik (misal: "Beli pedal sepeda lipat"), kamu WAJIB menggunakan keterangan tersebut sebagai `description`.
+3. Jika pengguna mencatat pengeluaran (misal: "beli telur 25k", "bensin 50rb pake bca", "makan siang 35k", "beli pedal sepeda dari bank Jago"), panggil `record_expense`.
    - Pilih `expense_account` yang paling relevan dari daftar akun beban di atas. Jika tidak ada yang cocok, gunakan nama kategori baru yang spesifik.
-   - Jika pengguna menyebutkan rekening/dompet (misal: "BCA", "Mandiri", "Gopay", "Tunai"), set `payment_account` ke akun tersebut. Jika tidak disebutkan, kosongkan agar sistem menggunakan default (Kas Tunai).
+   - Set `payment_account` ke akun rekening yang disebutkan pengguna. Jika tidak disebutkan sama sekali, cari dari teks struk atau default ke Kas Tunai.
    - Tentukan `amount` dalam angka murni (misal: 25000).
-3. Jika pengguna mencatat pemasukan (misal: "gaji masuk 15jt ke bca", "dapat bonus 500k", "hasil jualan 2jt"), panggil `record_income`.
-4. Jika pengguna memindahkan uang antar rekening/dompet (misal: "transfer dari BCA ke Gopay 200k", "tarik tunai 500rb dari mandiri"), panggil `record_transfer`.
-5. Jika pengguna menanyakan kondisi keuangan (misal: "keuangan saya 1 minggu", "berapa pengeluaran bulan ini?", "ringkasan kas hari ini", "pengeluaran makan minggu lalu"), panggil `query_financial_summary`.
-6. BATASAN & KEAMANAN (GUARDRAILS):
+4. Jika pengguna mencatat pemasukan (misal: "gaji masuk 15jt ke bca", "dapat bonus 500k", "hasil jualan 2jt"), panggil `record_income`.
+5. Jika pengguna memindahkan uang antar rekening/dompet (misal: "transfer dari BCA ke Gopay 200k", "tarik tunai 500rb dari mandiri"), panggil `record_transfer`.
+6. Jika pengguna menanyakan kondisi keuangan (misal: "keuangan saya 1 minggu", "berapa pengeluaran bulan ini?", "ringkasan kas hari ini", "pengeluaran makan minggu lalu"), panggil `query_financial_summary`.
+7. BATASAN & KEAMANAN (GUARDRAILS):
    - Kamu adalah asisten khusus PENCATATAN KEUANGAN PRIBADI.
    - Jika pengguna mengirim pesan di luar topik keuangan (misalnya meminta resep makanan, coding/programming, dongeng/cerita, opini politik, gosip, atau pertanyaan non-keuangan lainnya), ATAU jika pesan berupa teks panjang yang tidak memuat transaksi keuangan, JANGAN panggil tool transaksi apapun.
    - Berikan respon ramah yang menegaskan bahwa Anda hanya melayani pencatatan keuangan (pemasukan, pengeluaran, transfer, dan laporan).

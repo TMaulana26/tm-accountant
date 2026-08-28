@@ -18,7 +18,7 @@ return [
     | General Timeout
     |--------------------------------------------------------------------------
     */
-    'timeout' => (int) env('AI_TIMEOUT', 60),
+    'timeout' => (int) env('AI_TIMEOUT', 90),
 
     /*
     |--------------------------------------------------------------------------
@@ -45,6 +45,7 @@ return [
             'api_key' => env('BAI_API_KEY', env('AI_API_KEY', '')),
             'model' => env('BAI_MODEL', 'deepseek-v4-flash-vision-exp'),
             'supports_vision' => true,
+            'timeout' => (int) env('BAI_TIMEOUT', 90),
             'driver' => 'openai_compatible',
         ],
 
