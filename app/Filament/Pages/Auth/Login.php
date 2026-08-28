@@ -7,7 +7,6 @@ use Filament\Actions\Action;
 use Filament\Auth\Pages\Login as BaseLogin;
 use Filament\Forms\Components\TextInput;
 use Filament\Schemas\Components\Component;
-use Filament\Schemas\Components\View;
 use Filament\Schemas\Schema;
 use Illuminate\Contracts\Support\Htmlable;
 use SensitiveParameter;
@@ -33,24 +32,21 @@ class Login extends BaseLogin
     {
         return $schema
             ->components([
-                View::make('filament.pages.auth.user-badge'),
                 $this->getEmailFormComponent(),
                 $this->getPasswordFormComponent(),
                 $this->getRememberFormComponent(),
             ]);
     }
 
-    protected function getDefaultAdminEmail(): string
-    {
-        return User::first()?->email ?? 'admin@example.com';
-    }
-
     protected function getEmailFormComponent(): Component
     {
         return TextInput::make('email')
-            ->default(fn () => $this->getDefaultAdminEmail())
-            ->hidden()
-            ->dehydrated();
+            ->label('Alamat Email')
+            ->email()
+            ->required()
+            ->autocomplete('email')
+            ->default(fn () => User::latest('id')->first()?->email ?? 'admin@example.com')
+            ->autofocus();
     }
 
     protected function getPasswordFormComponent(): Component
@@ -60,8 +56,7 @@ class Login extends BaseLogin
             ->password()
             ->revealable()
             ->autocomplete('current-password')
-            ->required()
-            ->autofocus();
+            ->required();
     }
 
     protected function getFormActions(): array
@@ -84,7 +79,7 @@ class Login extends BaseLogin
     protected function getCredentialsFromFormData(#[SensitiveParameter] array $data): array
     {
         return [
-            'email' => $data['email'] ?? $this->getDefaultAdminEmail(),
+            'email' => $data['email'],
             'password' => $data['password'],
         ];
     }
