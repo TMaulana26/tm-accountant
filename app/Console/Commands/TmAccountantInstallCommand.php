@@ -103,8 +103,9 @@ class TmAccountantInstallCommand extends Command
         if ($configureAi) {
             $providerOptions = [
                 'deepseek' => 'DeepSeek AI (Cloud API - High Intelligence & Ultra Low Cost)',
+                'bai' => 'B.AI (DeepSeek Vision Experimental - deepseek-v4-flash-vision-exp)',
                 'ollama' => 'Ollama (Local / 100% Offline & Free - Llama 3.3, Qwen 2.5)',
-                'gemini' => 'Google Gemini (Cloud API - gemini-3.7-flash, gemini-2.5-flash)',
+                'gemini' => 'Google Gemini (Cloud API - gemini-3.7-flash, gemini-3.1-flash-lite)',
                 'openai' => 'OpenAI (Cloud API - gpt-4o, gpt-4o-mini)',
                 'groq' => 'Groq (Cloud API - Ultra Fast Llama 3.3)',
                 'openrouter' => 'OpenRouter (Multi-Model Cloud Gateway)',
@@ -127,6 +128,17 @@ class TmAccountantInstallCommand extends Command
                         $envUpdates['DEEPSEEK_API_KEY'] = $apiKey;
                         $envUpdates['AI_API_KEY'] = $apiKey;
                     }
+                    break;
+
+                case 'bai':
+                    $apiKey = $this->ask('Enter B.AI API Key');
+                    $model = $this->ask('Enter B.AI Model Name', 'deepseek-v4-flash-vision-exp');
+                    if ($apiKey) {
+                        $envUpdates['BAI_API_KEY'] = $apiKey;
+                        $envUpdates['AI_API_KEY'] = $apiKey;
+                    }
+                    $envUpdates['BAI_BASE_URL'] = 'https://api.b.ai/v1';
+                    $envUpdates['BAI_MODEL'] = $model;
                     break;
 
                 case 'ollama':
