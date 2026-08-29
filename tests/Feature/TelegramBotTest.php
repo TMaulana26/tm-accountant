@@ -421,3 +421,13 @@ test('bot records arisan contribution to other current asset account correctly',
             str_contains($request['text'], 'Akun Investasi / Aset Lancar');
     });
 });
+
+test('bot cleans redundant payment phrases from description', function () {
+    $botService = app(TelegramBotService::class);
+
+    expect($botService->cleanDescription('Beli VPS ke Tencent dari kartu debit'))->toBe('Beli VPS ke Tencent')
+        ->and($botService->cleanDescription('Makan siang bareng tim pake gopay'))->toBe('Makan siang bareng tim')
+        ->and($botService->cleanDescription('Bayar hutang ke Tante Lany dari bank jago'))->toBe('Bayar hutang ke Tante Lany')
+        ->and($botService->cleanDescription('Beli bensin pertalite via bca'))->toBe('Beli bensin pertalite')
+        ->and($botService->cleanDescription('Beli Nasi Padang'))->toBe('Beli Nasi Padang');
+});

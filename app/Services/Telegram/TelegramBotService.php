@@ -358,7 +358,7 @@ class TelegramBotService
         ?string $receiptImage = null,
     ): void {
         $amount = (float) ($params['amount'] ?? 0);
-        $description = trim($params['description'] ?? ($isOcr ? 'Pembelian sesuai Struk/Nota' : 'Pengeluaran'));
+        $description = $this->cleanDescription(trim($params['description'] ?? ($isOcr ? 'Pembelian sesuai Struk/Nota' : 'Pengeluaran')));
         $expenseAccountName = $params['expense_account'] ?? 'Makanan & Minuman (Harian)';
         $paymentAccountKeyword = $params['payment_account'] ?? null;
         $date = ! empty($params['date']) ? Carbon::parse($params['date']) : now();
@@ -443,7 +443,7 @@ class TelegramBotService
     protected function executeRecordIncome(string $chatId, array $params, TelegramMessage $log, ?string $receiptImage = null): void
     {
         $amount = (float) ($params['amount'] ?? 0);
-        $description = trim($params['description'] ?? 'Pemasukan');
+        $description = $this->cleanDescription(trim($params['description'] ?? 'Pemasukan'));
         $incomeAccountName = $params['income_account'] ?? 'Pendapatan Lainnya';
         $depositAccountKeyword = $params['deposit_account'] ?? null;
         $date = ! empty($params['date']) ? Carbon::parse($params['date']) : now();
@@ -1022,5 +1022,17 @@ HELP;
         }
 
         return $response->json('result') ?? [];
+    }
+
+    /**
+     * Clean redundant payment account phrases from description text.
+     */
+    public function cleanDescription(string $description): string
+    {
+        $cleaned = trim($description);
+        $pattern = '/\s+(?:dari|pakai|pake|via|lewat|menggunakan|dg)\s+(?:kartu\s+debit|kartu\s+kredit|kartu|rekening|bank\s+[a-z0-9]+|bca|mandiri|bni|bri|jago|gopay|ovo|dana|shopeepay|shopee\s+pay|cash|tunai|dompet)\b.*$/iu';
+        $cleaned = preg_replace($pattern, '', $cleaned);
+
+        return trim($cleaned) ?: $description;
     }
 }

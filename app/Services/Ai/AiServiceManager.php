@@ -92,10 +92,17 @@ class AiServiceManager
 
         if (! empty($caption)) {
             $combinedPrompt .= "\nCatatan Tambahan / Caption dari Pengguna (PRIORITAS UTAMA):\n\"{$caption}\"\n"
-                ."\n⚠️ ATURAN PRIORITAS CAPTION PENGGUNA:"
-                ."\n1. SUMBER DANA / PEMBAYARAN: Jika pengguna menulis nama bank/dompet di caption (misal: 'dari bank Jago', 'pakai BCA', 'dari Gopay', 'pakai Tunai'), kamu WAJIB menetapkan `payment_account` ke akun tersebut (OVERRIDE nama acquirer/merchant di struk)."
-                ."\n2. KETERANGAN BARANG: Jika pengguna menulis nama barang/tujuan transaksi (misal: 'Beli pedal sepeda lipat'), gunakan keterangan tersebut sebagai `description` transaksi."
-                ."\n3. AKUN BEBAN: Pilih akun beban yang paling sesuai dengan barang yang dibeli.";
+                ."\n⚠️ ATURAN SINTESIS KETERANGAN (DESCRIPTION) CERDAS & PROFESIONAL:"
+                ."\n1. SUMBER DANA: Jika pengguna menyebutkan rekening/dompet/kartu (misal: 'dari bank Jago', 'pakai BCA', 'dari Gopay', 'dari kartu debit', 'tunai'), kamu WAJIB menetapkan `payment_account` ke akun tersebut."
+                ."\n2. FORMULASI KETERANGAN (DESCRIPTION):"
+                ."   - HAPUS / BERSIHKAN frasa metode pembayaran dari caption (seperti 'dari kartu debit', 'pakai bca', 'via jago', 'dari gopay'). Frasa rekening ini TIDAK BOLEH ada di dalam kolom `description` karena sudah ada di Sumber Dana."
+                .'   - GABUNGKAN maksud/keperluan caption dengan nama Merchant/Penyedia dari struk/bukti transaksi untuk menghasilkan keterangan yang informatif dan profesional.'
+                ."   - Contoh: Caption 'Beli VPS ke Tencent dari kartu debit' + Struk 'Tencent Cloud InternatiSINGAPORE SG' => `description` = 'Beli VPS Tencent Cloud (Tencent Cloud Singapore)'"
+                ."   - Contoh: Caption 'Makan siang bareng tim pake gopay' + Struk 'RM Padang Sederhana' => `description` = 'Makan Siang Bareng Tim di RM Padang Sederhana'"
+                ."   - Contoh: Caption 'Beli bensin via bca' + Struk 'SPBU Pertamina 34.12345' => `description` = 'Beli Bensin Motor di SPBU Pertamina 34.12345'"
+                ."   - Contoh: Caption 'Bayar hutang ke Tante Lany dari bank jago' => `description` = 'Bayar Hutang ke Tante Lany'"
+                ."   - Contoh: Caption 'Investasi Reksadana dari bank jago' + Struk 'Stockbit Sekuritas RDN' => `description` = 'Investasi Reksadana (Stockbit Sekuritas RDN)'"
+                ."\n3. AKUN BEBAN / ASET / HUTANG: Pilih akun yang paling akurat sesuai transaksi.";
         }
 
         $combinedPrompt .= "\n\nInstruksi: Tentukan transaksi keuangan yang sesuai (pengeluaran, pemasukan, atau transfer antar rekening), pilih akun beban/pendapatan dan sumber dana yang tepat, lalu panggil tool transaksi.";
@@ -144,9 +151,13 @@ DAFTAR AKUN (CHART OF ACCOUNTS) AKTIF:
 1. PANGGILAN & GAYA BAHASA:
    - Nama pemilik/pengguna buku kas ini adalah: **{$ownerName}**.
    - Panggil pengguna dengan sapaan akrab, ramah, dan santun (misal: "Kang {$ownerName}" atau sebutan ramah yang sesuai).
-2. PRIORITAS UTAMA: PESAN / CAPTION PENGGUNA (OVERRIDE STRUK):
-   - Jika pengguna menyebutkan rekening/dompet (misal: "dari bank Jago", "pakai BCA", "dari DANA", "pake Gopay", "tunai"), kamu WAJIB menetapkan `payment_account` / `deposit_account` ke akun yang disebut pengguna tersebut, BUKAN teks acquirer/gateway di struk!
-   - Jika pengguna menyebutkan keterangan barang spesifik (misal: "Beli pedal sepeda lipat"), kamu WAJIB menggunakan keterangan tersebut sebagai `description`.
+2. FORMULASI KETERANGAN (DESCRIPTION) BERSIH & INFORMATIF:
+   - Kolom `description` harus ringkas, jelas, dan profesional (gunakan Title Case yang rapi).
+   - JANGAN masukkan frasa metode pembayaran (seperti "pakai bca", "via jago", "dari kartu debit", "pake gopay", "tunai") ke dalam kolom `description`, karena informasi rekening sudah otomatis dicatat pada parameter `payment_account` / `deposit_account`.
+   - Contoh: "beli nasi padang 25k via bca" => `description`: "Beli Nasi Padang", `payment_account`: "BCA"
+   - Contoh: "bayar hutang ke tante lany dari bank jago" => `description`: "Bayar Hutang ke Tante Lany", `payment_account`: "Bank Jago"
+   - Contoh: "beli bensin pertalite 50rb pake cash" => `description`: "Beli Bensin Pertalite", `payment_account`: "Kas Tunai"
+   - Jika pengguna menyebutkan rekening/dompet (misal: "dari bank Jago", "pakai BCA", "dari DANA", "pake Gopay", "tunai"), kamu WAJIB menetapkan `payment_account` / `deposit_account` ke akun tersebut (OVERRIDE teks acquirer/gateway di struk).
 3. PENGELUARAN / BEBAN, BAYAR HUTANG, PINJAMAN & INVESTASI / ARISAN:
    - Jika pengguna mencatat INVESTASI / REKSADANA / SAHAM / RDN / ARISAN / IURAN ARISAN / TABUNGAN BERJANGKA / DEPOSITO / EMAS / CRYPTO (misal: "bayar arisan dari bank jago 500rb", "setor iuran arisan", "investasi reksadana dari bank jago", "beli saham di stockbit", "top up bibit 200k", "transfer ke rdn", "nabung emas"), panggil `record_expense` dan WAJIB set `expense_account` ke "Investasi & Tabungan Berjangka" (JANGAN panggil record_transfer ke kas fisik, dan JANGAN masukkan ke beban tak terduga)!
    - Jika pengguna mencatat PEMBELIAN ASET TETAP / GADGET / KENDARAAN (misal: "beli laptop 10jt", "beli hp baru", "beli motor"), panggil `record_expense` dan set `expense_account` ke "Peralatan Elektronik & Gadget" atau "Kendaraan".
