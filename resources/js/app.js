@@ -1,15 +1,25 @@
 import './echo';
 import './passkeys';
 
-function setupEchoListeners() {
-    if (!window.Echo) return;
+function registerEchoListeners() {
+    if (!window.Echo) {
+        console.warn('[Reverb/Echo] window.Echo is not ready.');
+        return;
+    }
+
+    if (window.__accountingEchoRegistered) {
+        return;
+    }
+    window.__accountingEchoRegistered = true;
+
+    console.log('[Reverb/Echo] Subscribed to channel: accounting');
 
     const channel = window.Echo.channel('accounting');
 
+    // 1. Transaction Recorded (New transaction logged via web or telegram)
     channel.listen('.TransactionRecorded', (e) => {
-        console.log('[Echo] TransactionRecorded received:', e);
+        console.log('[Reverb/Echo] Event TransactionRecorded received:', e);
 
-        // Toast notification for telegram transactions
         if (e.source === 'telegram' && window.FilamentNotification) {
             new FilamentNotification()
                 .title('🤖 Transaksi Baru dari Telegram')
@@ -19,7 +29,6 @@ function setupEchoListeners() {
                 .send();
         }
 
-        // Trigger Livewire refreshes across widgets & tables
         if (window.Livewire) {
             window.Livewire.dispatch('refresh-transactions');
             window.Livewire.dispatch('refresh-wallets');
@@ -28,8 +37,9 @@ function setupEchoListeners() {
         }
     });
 
+    // 2. Transaction Reverted (Undo transaction)
     channel.listen('.TransactionReverted', (e) => {
-        console.log('[Echo] TransactionReverted received:', e);
+        console.log('[Reverb/Echo] Event TransactionReverted received:', e);
 
         if (window.FilamentNotification) {
             new FilamentNotification()
@@ -48,8 +58,9 @@ function setupEchoListeners() {
         }
     });
 
+    // 3. Wallet Balance Updated (Direct pin/unpin or balance update)
     channel.listen('.WalletBalanceUpdated', (e) => {
-        console.log('[Echo] WalletBalanceUpdated received:', e);
+        console.log('[Reverb/Echo] Event WalletBalanceUpdated received:', e);
 
         if (window.Livewire) {
             window.Livewire.dispatch('refresh-wallets');
@@ -57,8 +68,9 @@ function setupEchoListeners() {
         }
     });
 
+    // 4. Telegram Message Logged (New chat activity)
     channel.listen('.TelegramMessageLogged', (e) => {
-        console.log('[Echo] TelegramMessageLogged received:', e);
+        console.log('[Reverb/Echo] Event TelegramMessageLogged received:', e);
 
         if (window.Livewire) {
             window.Livewire.dispatch('refresh-telegram-messages');
@@ -67,8 +79,8 @@ function setupEchoListeners() {
     });
 }
 
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', setupEchoListeners);
-} else {
-    setupEchoListeners();
-}
+// Register on all page lifecycles
+registerEchoListeners();
+document.addEventListener('DOMContentLoaded', registerEchoListeners);
+document.addEventListener('livewire:init', registerEchoListeners);
+document.addEventListener('livewire:navigated', registerEchoListeners);
