@@ -101,15 +101,34 @@ class TelegramBotService
             return;
         }
 
-        // Create initial log
-        $telegramLog = TelegramMessage::create([
-            'telegram_message_id' => $messageId,
-            'chat_id' => $chatId,
-            'from_id' => $fromId,
-            'from_username' => $username,
-            'raw_text' => $text,
-            'status' => TelegramMessageStatus::Processed,
-        ]);
+        // Idempotency check: if messageId exists, check if already processed or recorded
+        $telegramLog = null;
+        if (! empty($messageId) && ! empty($chatId)) {
+            $existing = TelegramMessage::where('chat_id', $chatId)
+                ->where('telegram_message_id', $messageId)
+                ->first();
+
+            if ($existing) {
+                // If it already has a journal entry attached or was already successfully answered with ai_response:
+                if ($existing->journal_entry_id !== null || (! empty($existing->ai_response) && $existing->status === TelegramMessageStatus::Processed)) {
+                    Log::info("Telegram message {$messageId} in chat {$chatId} is already processed with journal #{$existing->journal_entry_id}. Skipping duplicate execution.");
+
+                    return;
+                }
+                $telegramLog = $existing;
+            }
+        }
+
+        if (! $telegramLog) {
+            $telegramLog = TelegramMessage::create([
+                'telegram_message_id' => $messageId,
+                'chat_id' => $chatId,
+                'from_id' => $fromId,
+                'from_username' => $username,
+                'raw_text' => $text,
+                'status' => TelegramMessageStatus::Processed,
+            ]);
+        }
 
         // Command: /start or /help
         if (in_array(strtolower($text), ['/start', '/help', 'help', 'bantuan'])) {
@@ -252,18 +271,36 @@ class TelegramBotService
             return;
         }
 
+        // Idempotency check: if messageId exists, check if already processed
+        $telegramLog = null;
+        if (! empty($messageId) && ! empty($chatId)) {
+            $existing = TelegramMessage::where('chat_id', $chatId)
+                ->where('telegram_message_id', $messageId)
+                ->first();
+
+            if ($existing) {
+                if ($existing->journal_entry_id !== null || (! empty($existing->ai_response) && $existing->status === TelegramMessageStatus::Processed)) {
+                    Log::info("Telegram image message {$messageId} in chat {$chatId} is already processed with journal #{$existing->journal_entry_id}. Skipping duplicate execution.");
+
+                    return;
+                }
+                $telegramLog = $existing;
+            }
+        }
+
         // Send processing status
         $this->sendMessage($chatId, '🔍 <i>Sedang membaca struk/screenshot dengan Vision OCR & memproses pembukuan...</i>');
 
-        // Create initial log
-        $telegramLog = TelegramMessage::create([
-            'telegram_message_id' => $messageId,
-            'chat_id' => $chatId,
-            'from_id' => $fromId,
-            'from_username' => $username,
-            'raw_text' => '[FOTO STRUK / SCREENSHOT]'.($caption ? " Caption: {$caption}" : ''),
-            'status' => TelegramMessageStatus::Processed,
-        ]);
+        if (! $telegramLog) {
+            $telegramLog = TelegramMessage::create([
+                'telegram_message_id' => $messageId,
+                'chat_id' => $chatId,
+                'from_id' => $fromId,
+                'from_username' => $username,
+                'raw_text' => '[FOTO STRUK / SCREENSHOT]'.($caption ? " Caption: {$caption}" : ''),
+                'status' => TelegramMessageStatus::Processed,
+            ]);
+        }
 
         try {
             // 1. Download image from Telegram
@@ -366,6 +403,17 @@ class TelegramBotService
         $expenseAccount = $this->accountingService->findOrCreateExpenseAccount($expenseAccountName);
         $paymentAccount = $this->accountingService->findPaymentAccount($paymentAccountKeyword);
 
+        $referenceNumber = (! empty($log->telegram_message_id) && ! empty($log->chat_id))
+            ? "TG-{$log->chat_id}-{$log->telegram_message_id}"
+            : null;
+
+        // Idempotency: verify log does not already have a journal attached
+        if ($log->fresh()->journal_entry_id !== null) {
+            Log::info("Telegram message {$log->telegram_message_id} already attached to journal #{$log->journal_entry_id}. Skipping duplicate expense.");
+
+            return;
+        }
+
         $journal = $this->accountingService->createSimpleTransaction(
             date: $date,
             type: 'expense',
@@ -374,7 +422,8 @@ class TelegramBotService
             destinationAccount: $expenseAccount,
             description: $description,
             source: JournalSource::Telegram,
-            receiptImage: $receiptImage
+            receiptImage: $receiptImage,
+            referenceNumber: $referenceNumber
         );
 
         $log->update([
@@ -451,6 +500,17 @@ class TelegramBotService
         $incomeAccount = $this->accountingService->findOrCreateIncomeAccount($incomeAccountName);
         $depositAccount = $this->accountingService->findPaymentAccount($depositAccountKeyword);
 
+        $referenceNumber = (! empty($log->telegram_message_id) && ! empty($log->chat_id))
+            ? "TG-{$log->chat_id}-{$log->telegram_message_id}"
+            : null;
+
+        // Idempotency: verify log does not already have a journal attached
+        if ($log->fresh()->journal_entry_id !== null) {
+            Log::info("Telegram message {$log->telegram_message_id} already attached to journal #{$log->journal_entry_id}. Skipping duplicate income.");
+
+            return;
+        }
+
         $journal = $this->accountingService->createSimpleTransaction(
             date: $date,
             type: 'income',
@@ -459,7 +519,8 @@ class TelegramBotService
             destinationAccount: $depositAccount,
             description: $description,
             source: JournalSource::Telegram,
-            receiptImage: $receiptImage
+            receiptImage: $receiptImage,
+            referenceNumber: $referenceNumber
         );
 
         $log->update([
@@ -504,6 +565,17 @@ class TelegramBotService
         $fromAccount = $this->accountingService->findPaymentAccount($fromAccountKeyword);
         $toAccount = $this->accountingService->findPaymentAccount($toAccountKeyword);
 
+        $referenceNumber = (! empty($log->telegram_message_id) && ! empty($log->chat_id))
+            ? "TG-{$log->chat_id}-{$log->telegram_message_id}"
+            : null;
+
+        // Idempotency: verify log does not already have a journal attached
+        if ($log->fresh()->journal_entry_id !== null) {
+            Log::info("Telegram message {$log->telegram_message_id} already attached to journal #{$log->journal_entry_id}. Skipping duplicate transfer.");
+
+            return;
+        }
+
         $journal = $this->accountingService->createSimpleTransaction(
             date: $date,
             type: 'transfer',
@@ -512,7 +584,8 @@ class TelegramBotService
             destinationAccount: $toAccount,
             description: $description,
             source: JournalSource::Telegram,
-            receiptImage: $receiptImage
+            receiptImage: $receiptImage,
+            referenceNumber: $referenceNumber
         );
 
         $log->update([

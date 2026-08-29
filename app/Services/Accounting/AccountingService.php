@@ -51,6 +51,21 @@ class AccountingService
         }
 
         $entry = DB::transaction(function () use ($entryData, $items) {
+            // Idempotency check: if reference_number is provided, lock and verify whether it was already recorded
+            if (! empty($entryData['reference_number'])) {
+                $source = $entryData['source'] ?? JournalSource::Web;
+                $sourceValue = $source instanceof JournalSource ? $source->value : $source;
+
+                $existing = JournalEntry::where('reference_number', $entryData['reference_number'])
+                    ->where('source', $sourceValue)
+                    ->lockForUpdate()
+                    ->first();
+
+                if ($existing) {
+                    return $existing->load('items.account');
+                }
+            }
+
             $entry = JournalEntry::create([
                 'date' => isset($entryData['date']) ? Carbon::parse($entryData['date']) : now(),
                 'description' => $entryData['description'],
@@ -72,13 +87,15 @@ class AccountingService
             return $entry->load('items.account');
         });
 
-        // Broadcast real-time events via Laravel Reverb
-        event(new TransactionRecorded($entry));
+        // Broadcast real-time events via Laravel Reverb only if newly created
+        if ($entry->wasRecentlyCreated) {
+            event(new TransactionRecorded($entry));
 
-        $accountIds = collect($items)->pluck('account_id')->unique();
-        $affectedWallets = Account::whereIn('id', $accountIds)->where('category', AccountCategory::CashAndBank)->get();
-        foreach ($affectedWallets as $wallet) {
-            event(new WalletBalanceUpdated($wallet));
+            $accountIds = collect($items)->pluck('account_id')->unique();
+            $affectedWallets = Account::whereIn('id', $accountIds)->where('category', AccountCategory::CashAndBank)->get();
+            foreach ($affectedWallets as $wallet) {
+                event(new WalletBalanceUpdated($wallet));
+            }
         }
 
         return $entry;
@@ -96,7 +113,8 @@ class AccountingService
         string $description,
         JournalSource|string $source = JournalSource::Web,
         ?int $createdBy = null,
-        ?string $receiptImage = null
+        ?string $receiptImage = null,
+        ?string $referenceNumber = null
     ): JournalEntry {
         if ($amount <= 0) {
             throw new InvalidArgumentException('Nominal transaksi harus lebih dari 0.');
@@ -133,6 +151,7 @@ class AccountingService
             'date' => $date,
             'description' => $description,
             'source' => $source,
+            'reference_number' => $referenceNumber,
             'created_by' => $createdBy,
             'receipt_image' => $receiptImage,
         ], $items);
