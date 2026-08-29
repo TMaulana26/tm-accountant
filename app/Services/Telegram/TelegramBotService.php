@@ -389,13 +389,23 @@ class TelegramBotService
 
         $accountLabel = match ($expenseAccount->type) {
             AccountType::Liability => 'Akun Kewajiban (Hutang)',
-            AccountType::Asset => ($expenseAccount->category === AccountCategory::AccountsReceivable ? 'Akun Piutang' : 'Akun Aset'),
+            AccountType::Asset => match ($expenseAccount->category) {
+                AccountCategory::AccountsReceivable => 'Akun Piutang',
+                AccountCategory::OtherCurrentAsset => 'Akun Investasi / Aset Lancar',
+                AccountCategory::FixedAsset => 'Akun Aset Tetap',
+                default => 'Akun Aset',
+            },
             default => 'Akun Beban',
         };
 
         $headerTitle = $isOcr ? '🧾 <b>NOTA / STRUK BERHASIL DIPROSES</b>' : match ($expenseAccount->type) {
             AccountType::Liability => '✅ <b>PEMBAYARAN HUTANG BERHASIL DICATAT</b>',
-            AccountType::Asset => '✅ <b>PINJAMAN / PIUTANG BERHASIL DICATAT</b>',
+            AccountType::Asset => match ($expenseAccount->category) {
+                AccountCategory::AccountsReceivable => '✅ <b>PINJAMAN / PIUTANG BERHASIL DICATAT</b>',
+                AccountCategory::OtherCurrentAsset => '📈 <b>INVESTASI BERHASIL DICATAT</b>',
+                AccountCategory::FixedAsset => '🏢 <b>PEMBELIAN ASET BERHASIL DICATAT</b>',
+                default => '✅ <b>TRANSAKSI ASET BERHASIL DICATAT</b>',
+            },
             default => '✅ <b>PENGELUARAN BERHASIL DICATAT</b>',
         };
 

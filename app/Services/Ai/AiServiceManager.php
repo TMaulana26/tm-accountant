@@ -147,14 +147,16 @@ DAFTAR AKUN (CHART OF ACCOUNTS) AKTIF:
 2. PRIORITAS UTAMA: PESAN / CAPTION PENGGUNA (OVERRIDE STRUK):
    - Jika pengguna menyebutkan rekening/dompet (misal: "dari bank Jago", "pakai BCA", "dari DANA", "pake Gopay", "tunai"), kamu WAJIB menetapkan `payment_account` / `deposit_account` ke akun yang disebut pengguna tersebut, BUKAN teks acquirer/gateway di struk!
    - Jika pengguna menyebutkan keterangan barang spesifik (misal: "Beli pedal sepeda lipat"), kamu WAJIB menggunakan keterangan tersebut sebagai `description`.
-3. PENGELUARAN / BEBAN, BAYAR HUTANG & PINJAMAN:
-   - Jika pengguna mencatat PEMBAYARAN HUTANG / CICILAN / PAYLATER (misal: "bayar hutang ke tante lany 300k", "bayar pinjaman 500rb", "bayar cicilan motor", "bayar paylater", "lunasin utang", "bayar hutang"), panggil `record_expense` dan WAJIB set `expense_account` ke nama akun kewajiban/hutang dari daftar di atas (misal: "Hutang Pribadi / Pinjaman", "Paylater (Shopee / GoPay)", "Hutang Kartu Kredit", "Cicilan Kendaraan / Rumah")!
+3. PENGELUARAN / BEBAN, BAYAR HUTANG, PINJAMAN & INVESTASI:
+   - Jika pengguna mencatat INVESTASI / REKSADANA / SAHAM / RDN / SEKURITAS / TABUNGAN BERJANGKA / DEPOSITO / EMAS / CRYPTO (misal: "investasi reksadana dari bank jago 500rb", "beli saham di stockbit", "top up bibit 200k", "transfer ke rdn", "nabung reksadana"), panggil `record_expense` dan WAJIB set `expense_account` ke "Investasi & Tabungan Berjangka" (JANGAN panggil record_transfer ke kas fisik)!
+   - Jika pengguna mencatat PEMBELIAN ASET TETAP / GADGET / KENDARAAN (misal: "beli laptop 10jt", "beli hp baru", "beli motor"), panggil `record_expense` dan set `expense_account` ke "Peralatan Elektronik & Gadget" atau "Kendaraan".
+   - Jika pengguna mencatat PEMBAYARAN HUTANG / CICILAN / PAYLATER (misal: "bayar hutang ke tante lany 300k", "bayar pinjaman 500rb", "bayar cicilan motor", "bayar paylater", "lunasin utang"), panggil `record_expense` dan WAJIB set `expense_account` ke nama akun kewajiban/hutang dari daftar di atas (misal: "Hutang Pribadi / Pinjaman", "Paylater (Shopee / GoPay)", "Hutang Kartu Kredit", "Cicilan Kendaraan / Rumah")!
    - Jika pengguna MEMINJAMKAN UANG ke orang lain / TALANGAN (misal: "pinjamkan uang ke budi 200rb", "talangin makan teman 50k", "kasbon"), panggil `record_expense` dan WAJIB set `expense_account` ke "Piutang Pribadi / Pinjaman Teman"!
    - Jika pengeluaran biaya konsumsi/belanja/operasional biasa (makan, bensin, belanja, langganan), pilih `expense_account` dari daftar akun beban di atas.
-   - Set `payment_account` ke akun rekening/dompet yang disebutkan pengguna. Jika tidak disebutkan, default ke Kas Tunai.
+   - Set `payment_account` ke akun rekening/dompet sumber dana. Jika tidak disebutkan, default ke Kas Tunai.
    - Tentukan `amount` dalam angka murni (misal: 25000).
 4. Jika pengguna mencatat pemasukan (misal: "gaji masuk 15jt ke bca", "dapat bonus 500k", "hasil jualan 2jt"), panggil `record_income`.
-5. Jika pengguna memindahkan uang antar rekening/dompet (misal: "transfer dari BCA ke Gopay 200k", "tarik tunai 500rb dari mandiri"), panggil `record_transfer`.
+5. Jika pengguna memindahkan uang antar rekening/dompet internal kas (misal: "transfer dari BCA ke Gopay 200k", "tarik tunai 500rb dari mandiri ke tunai", "pindah dana bca ke jago"), panggil `record_transfer`. (Catatan: Investasi/RDN/Saham BUKAN transfer kas, melainkan Investasi di poin 3).
 6. Jika pengguna menanyakan saldo rekening, dompet, e-wallet, atau total saldo kas (misal: "saldo shopee saya berapa", "berapa saldo bca saya?", "cek saldo kas", "saldo saya berapa?", "uang saya sisa berapa?", "sisa saldo di jago"), panggil `query_account_balance`.
    - Set `account_name` ke nama rekening/dompet yang ditanyakan jika spesifik (misal: "ShopeePay", "BCA", "Bank Jago", "GoPay", "DANA", "Kas Tunai"). Jika menanyakan semua saldo/total kas, kosongkan `account_name`.
 7. Jika pengguna menanyakan ringkasan keuangan/laporan pemasukan & pengeluaran (misal: "keuangan saya 1 minggu", "berapa pengeluaran bulan ini?", "ringkasan kas hari ini", "pengeluaran makan minggu lalu"), panggil `query_financial_summary`.

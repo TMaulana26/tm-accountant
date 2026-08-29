@@ -489,7 +489,32 @@ class AccountingService
             }
         }
 
-        // 4. Fallback: Search Expense accounts
+        // 4. Check if intent implies investment (e.g. "Investasi", "Reksadana", "Saham", "Stockbit", "Bibit", "Deposito", "Emas", "Crypto")
+        if (str_contains($lower, 'investasi') || str_contains($lower, 'reksadana') || str_contains($lower, 'reksa dana') || str_contains($lower, 'saham') || str_contains($lower, 'stockbit') || str_contains($lower, 'bibit') || str_contains($lower, 'rdn') || str_contains($lower, 'deposito') || str_contains($lower, 'emas') || str_contains($lower, 'crypto') || str_contains($lower, 'kripto')) {
+            $investmentAcc = Account::where('code', '1-10201')->first()
+                ?? Account::where('category', AccountCategory::OtherCurrentAsset)->first();
+
+            if ($investmentAcc) {
+                return $investmentAcc;
+            }
+        }
+
+        // 5. Check if intent implies fixed asset purchase (e.g. "Gadget", "Elektronik", "Laptop", "HP", "Kendaraan", "Motor", "Mobil")
+        if (str_contains($lower, 'elektronik') || str_contains($lower, 'gadget') || str_contains($lower, 'laptop') || str_contains($lower, 'handphone') || str_contains($lower, 'komputer')) {
+            $fixedAssetAcc = Account::where('code', '1-20001')->first();
+            if ($fixedAssetAcc) {
+                return $fixedAssetAcc;
+            }
+        }
+
+        if (str_contains($lower, 'kendaraan') || str_contains($lower, 'motor') || str_contains($lower, 'mobil')) {
+            $vehicleAcc = Account::where('code', '1-20002')->first();
+            if ($vehicleAcc) {
+                return $vehicleAcc;
+            }
+        }
+
+        // 6. Fallback: Search Expense accounts
         $expenseAcc = Account::where('type', AccountType::Expense)
             ->where('name', 'like', "%{$name}%")
             ->first();
