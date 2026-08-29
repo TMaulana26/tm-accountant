@@ -17,6 +17,7 @@ class RecentJournalEntriesWidget extends TableWidget
 
     protected int|string|array $columnSpan = 'full';
 
+    #[On('refresh-transactions')]
     #[On('echo:accounting,TransactionRecorded')]
     #[On('echo:accounting,TransactionReverted')]
     public function refreshTable(): void

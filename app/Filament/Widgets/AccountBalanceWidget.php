@@ -13,6 +13,8 @@ class AccountBalanceWidget extends StatsOverviewWidget
 {
     protected static ?int $sort = 1;
 
+    #[On('refresh-wallets')]
+    #[On('refresh-transactions')]
     #[On('echo:accounting,TransactionRecorded')]
     #[On('echo:accounting,TransactionReverted')]
     #[On('echo:accounting,WalletBalanceUpdated')]

@@ -32,6 +32,8 @@ class TelegramChatHistoryPage extends Page
 
     protected static ?int $navigationSort = 2;
 
+    #[On('refresh-telegram-messages')]
+    #[On('refresh-transactions')]
     #[On('echo:accounting,TelegramMessageLogged')]
     #[On('echo:accounting,TransactionRecorded')]
     #[On('echo:accounting,TransactionReverted')]

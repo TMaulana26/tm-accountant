@@ -26,6 +26,9 @@ class TrialBalanceReport extends Page
 
     protected static ?int $navigationSort = 5;
 
+    #[On('refresh-reports')]
+    #[On('refresh-transactions')]
+    #[On('refresh-wallets')]
     #[On('echo:accounting,TransactionRecorded')]
     #[On('echo:accounting,TransactionReverted')]
     #[On('echo:accounting,WalletBalanceUpdated')]

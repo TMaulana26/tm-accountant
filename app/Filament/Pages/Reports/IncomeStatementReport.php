@@ -27,6 +27,8 @@ class IncomeStatementReport extends Page
 
     protected static ?int $navigationSort = 1;
 
+    #[On('refresh-reports')]
+    #[On('refresh-transactions')]
     #[On('echo:accounting,TransactionRecorded')]
     #[On('echo:accounting,TransactionReverted')]
     public function refreshReport(): void

@@ -16,6 +16,8 @@ class PinnedWalletsWidget extends Widget
 
     protected int|string|array $columnSpan = 'full';
 
+    #[On('refresh-wallets')]
+    #[On('refresh-transactions')]
     #[On('echo:accounting,WalletBalanceUpdated')]
     #[On('echo:accounting,TransactionRecorded')]
     #[On('echo:accounting,TransactionReverted')]

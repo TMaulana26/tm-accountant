@@ -11,6 +11,8 @@ class ListAccounts extends ListRecords
 {
     protected static string $resource = AccountResource::class;
 
+    #[On('refresh-wallets')]
+    #[On('refresh-transactions')]
     #[On('echo:accounting,TransactionRecorded')]
     #[On('echo:accounting,TransactionReverted')]
     #[On('echo:accounting,WalletBalanceUpdated')]

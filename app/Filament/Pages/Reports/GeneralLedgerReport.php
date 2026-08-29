@@ -28,6 +28,9 @@ class GeneralLedgerReport extends Page
 
     protected static ?int $navigationSort = 4;
 
+    #[On('refresh-reports')]
+    #[On('refresh-transactions')]
+    #[On('refresh-wallets')]
     #[On('echo:accounting,TransactionRecorded')]
     #[On('echo:accounting,TransactionReverted')]
     #[On('echo:accounting,WalletBalanceUpdated')]

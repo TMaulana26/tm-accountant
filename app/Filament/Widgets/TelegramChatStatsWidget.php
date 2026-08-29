@@ -10,6 +10,8 @@ use Livewire\Attributes\On;
 
 class TelegramChatStatsWidget extends BaseWidget
 {
+    #[On('refresh-telegram-messages')]
+    #[On('refresh-transactions')]
     #[On('echo:accounting,TelegramMessageLogged')]
     #[On('echo:accounting,TransactionRecorded')]
     #[On('echo:accounting,TransactionReverted')]

@@ -20,6 +20,7 @@ class IncomeExpenseChartWidget extends ChartWidget
         'lg' => 1,
     ];
 
+    #[On('refresh-transactions')]
     #[On('echo:accounting,TransactionRecorded')]
     #[On('echo:accounting,TransactionReverted')]
     public function refreshChart(): void

@@ -18,6 +18,8 @@ class WalletBreakdownWidget extends ChartWidget
         'lg' => 1,
     ];
 
+    #[On('refresh-wallets')]
+    #[On('refresh-transactions')]
     #[On('echo:accounting,WalletBalanceUpdated')]
     #[On('echo:accounting,TransactionRecorded')]
     #[On('echo:accounting,TransactionReverted')]

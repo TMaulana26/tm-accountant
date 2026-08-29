@@ -13,6 +13,8 @@ class ListWallets extends ListRecords
 {
     protected static string $resource = WalletResource::class;
 
+    #[On('refresh-wallets')]
+    #[On('refresh-transactions')]
     #[On('echo:accounting,WalletBalanceUpdated')]
     #[On('echo:accounting,TransactionRecorded')]
     #[On('echo:accounting,TransactionReverted')]

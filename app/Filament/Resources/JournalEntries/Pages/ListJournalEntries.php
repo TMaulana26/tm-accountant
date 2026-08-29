@@ -11,6 +11,7 @@ class ListJournalEntries extends ListRecords
 {
     protected static string $resource = JournalEntryResource::class;
 
+    #[On('refresh-transactions')]
     #[On('echo:accounting,TransactionRecorded')]
     #[On('echo:accounting,TransactionReverted')]
     public function refreshJournalTable(): void

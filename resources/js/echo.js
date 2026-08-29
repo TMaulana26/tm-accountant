@@ -12,8 +12,11 @@ const host = rawHost.replace(/^https?:\/\//, '');
 const scheme = getMeta('reverb-scheme') || import.meta.env.VITE_REVERB_SCHEME || (window.location.protocol === 'https:' ? 'https' : 'http');
 const isSecure = scheme === 'https' || window.location.protocol === 'https:';
 
-const rawPort = getMeta('reverb-port') || import.meta.env.VITE_REVERB_PORT || (isSecure ? 443 : 80);
+const defaultPort = isSecure ? 443 : (window.location.hostname === 'localhost' || window.location.hostname.endsWith('.test') ? 8080 : 80);
+const rawPort = getMeta('reverb-port') || import.meta.env.VITE_REVERB_PORT || defaultPort;
 const port = parseInt(rawPort, 10);
+
+console.log('[Echo] Initializing Reverb WebSockets client:', { host, port, isSecure, key });
 
 window.Echo = new Echo({
     broadcaster: 'reverb',

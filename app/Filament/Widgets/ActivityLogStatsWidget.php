@@ -9,6 +9,8 @@ use Spatie\Activitylog\Models\Activity;
 
 class ActivityLogStatsWidget extends BaseWidget
 {
+    #[On('refresh-transactions')]
+    #[On('refresh-wallets')]
     #[On('echo:accounting,TransactionRecorded')]
     #[On('echo:accounting,TransactionReverted')]
     #[On('echo:accounting,TelegramMessageLogged')]

@@ -32,6 +32,8 @@ class WalletOnboardingWidget extends Widget implements HasActions, HasSchemas
 
     protected string $view = 'filament.widgets.wallet-onboarding-widget';
 
+    #[On('refresh-wallets')]
+    #[On('refresh-transactions')]
     #[On('echo:accounting,WalletBalanceUpdated')]
     #[On('echo:accounting,TransactionRecorded')]
     #[On('echo:accounting,TransactionReverted')]
