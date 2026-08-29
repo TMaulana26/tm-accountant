@@ -489,8 +489,8 @@ class AccountingService
             }
         }
 
-        // 4. Check if intent implies investment (e.g. "Investasi", "Reksadana", "Saham", "Stockbit", "Bibit", "Deposito", "Emas", "Crypto")
-        if (str_contains($lower, 'investasi') || str_contains($lower, 'reksadana') || str_contains($lower, 'reksa dana') || str_contains($lower, 'saham') || str_contains($lower, 'stockbit') || str_contains($lower, 'bibit') || str_contains($lower, 'rdn') || str_contains($lower, 'deposito') || str_contains($lower, 'emas') || str_contains($lower, 'crypto') || str_contains($lower, 'kripto')) {
+        // 4. Check if intent implies investment / savings / arisan (e.g. "Investasi", "Reksadana", "Saham", "Stockbit", "Bibit", "Arisan", "Deposito", "Emas", "Crypto")
+        if (str_contains($lower, 'investasi') || str_contains($lower, 'reksadana') || str_contains($lower, 'reksa dana') || str_contains($lower, 'saham') || str_contains($lower, 'stockbit') || str_contains($lower, 'bibit') || str_contains($lower, 'rdn') || str_contains($lower, 'deposito') || str_contains($lower, 'emas') || str_contains($lower, 'crypto') || str_contains($lower, 'kripto') || str_contains($lower, 'arisan')) {
             $investmentAcc = Account::where('code', '1-10201')->first()
                 ?? Account::where('category', AccountCategory::OtherCurrentAsset)->first();
 

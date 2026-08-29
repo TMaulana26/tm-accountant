@@ -374,3 +374,50 @@ test('bot records investment to other current asset account correctly', function
             str_contains($request['text'], 'Akun Investasi / Aset Lancar');
     });
 });
+
+test('bot records arisan contribution to other current asset account correctly', function () {
+    $mockAi = mock(AiServiceManager::class);
+    $mockAi->shouldReceive('processMessage')
+        ->once()
+        ->with('Bayar arisan dari bank jago 500k')
+        ->andReturn([
+            'intent' => 'record_expense',
+            'parameters' => [
+                'amount' => 500000,
+                'description' => 'Bayar arisan',
+                'expense_account' => 'Investasi & Tabungan Berjangka',
+                'payment_account' => 'Kas Tunai',
+            ],
+            'reply_text' => null,
+            'raw_response' => [],
+        ]);
+
+    $this->app->instance(AiServiceManager::class, $mockAi);
+
+    $botService = app(TelegramBotService::class);
+    $botService->handleUpdate([
+        'message' => [
+            'message_id' => 701,
+            'chat_id' => 123456789,
+            'from' => ['id' => 123456789, 'username' => 'owner'],
+            'text' => 'Bayar arisan dari bank jago 500k',
+        ],
+    ]);
+
+    expect(JournalEntry::count())->toBe(1);
+
+    $journal = JournalEntry::with('items.account')->first();
+    $debitItem = $journal->items->firstWhere('debit', '>', 0);
+    $creditItem = $journal->items->firstWhere('credit', '>', 0);
+
+    expect($debitItem->account->type)->toBe(AccountType::Asset)
+        ->and($debitItem->account->code)->toBe('1-10201')
+        ->and($debitItem->account->category)->toBe(AccountCategory::OtherCurrentAsset)
+        ->and($creditItem->account->type)->toBe(AccountType::Asset);
+
+    Http::assertSent(function ($request) {
+        return str_contains($request->url(), 'sendMessage') &&
+            str_contains($request['text'], 'INVESTASI BERHASIL DICATAT') &&
+            str_contains($request['text'], 'Akun Investasi / Aset Lancar');
+    });
+});
