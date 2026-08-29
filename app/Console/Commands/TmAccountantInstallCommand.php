@@ -324,6 +324,19 @@ class TmAccountantInstallCommand extends Command
             }
         }
 
-        File::put($envPath, $envContent);
+        try {
+            @chmod($envPath, 0666);
+            if (@file_put_contents($envPath, $envContent) === false) {
+                $handle = @fopen($envPath, 'w');
+                if ($handle) {
+                    fwrite($handle, $envContent);
+                    fclose($handle);
+                } else {
+                    File::put($envPath, $envContent);
+                }
+            }
+        } catch (\Throwable $e) {
+            $this->warn('Could not automatically write to .env: '.$e->getMessage());
+        }
     }
 }
