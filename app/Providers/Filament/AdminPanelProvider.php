@@ -74,7 +74,13 @@ class AdminPanelProvider extends PanelProvider
             ])
             ->renderHook(
                 PanelsRenderHook::HEAD_END,
-                fn (): string => Blade::render("@vite(['resources/css/app.css', 'resources/js/app.js'])")
+                fn (): string => Blade::render('
+                    <meta name="reverb-key" content="{{ config(\'reverb.apps.apps.0.key\', env(\'REVERB_APP_KEY\', \'443810\')) }}">
+                    <meta name="reverb-host" content="{{ preg_replace(\'#^https?://#\', \'\', env(\'REVERB_HOST\', request()->getHost())) }}">
+                    <meta name="reverb-port" content="{{ env(\'REVERB_PORT\', request()->isSecure() ? 443 : 80) }}">
+                    <meta name="reverb-scheme" content="{{ env(\'REVERB_SCHEME\', request()->isSecure() ? \'https\' : \'http\') }}">
+                    @vite([\'resources/css/app.css\', \'resources/js/app.js\'])
+                ')
             )
             ->middleware([
                 EncryptCookies::class,
