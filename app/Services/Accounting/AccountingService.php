@@ -451,13 +451,51 @@ class AccountingService
     {
         $name = trim($name);
 
-        // Try exact/partial match
-        $existing = Account::where('type', AccountType::Expense)
-            ->where('name', 'like', "%{$name}%")
+        // 1. Try exact/partial code or name match across Expense, Liability, and Receivable accounts
+        $existing = Account::whereIn('type', [AccountType::Expense, AccountType::Liability, AccountType::Asset])
+            ->where(function ($q) use ($name) {
+                $q->where('name', 'like', "%{$name}%")
+                    ->orWhere('code', $name);
+            })
             ->first();
 
         if ($existing) {
             return $existing;
+        }
+
+        // 2. Check if intent implies paying debt / liability (e.g. "Hutang", "Pinjaman", "Cicilan", "Paylater", "Kartu Kredit")
+        $lower = strtolower($name);
+        if (str_contains($lower, 'hutang') || str_contains($lower, 'pinjaman') || str_contains($lower, 'utang') || str_contains($lower, 'cicilan') || str_contains($lower, 'paylater')) {
+            $liabilityAcc = Account::where('type', AccountType::Liability)
+                ->where(function ($q) use ($name) {
+                    $q->where('name', 'like', "%{$name}%")
+                        ->orWhere('name', 'like', '%Hutang Pribadi%')
+                        ->orWhere('name', 'like', '%Kewajiban%');
+                })
+                ->first();
+
+            if ($liabilityAcc) {
+                return $liabilityAcc;
+            }
+        }
+
+        // 3. Check if intent implies giving loan / accounts receivable (e.g. "Piutang", "Talangan", "Kasbon", "Pinjamkan")
+        if (str_contains($lower, 'piutang') || str_contains($lower, 'talang') || str_contains($lower, 'kasbon') || str_contains($lower, 'pinjamkan')) {
+            $receivableAcc = Account::where('category', AccountCategory::AccountsReceivable)
+                ->first();
+
+            if ($receivableAcc) {
+                return $receivableAcc;
+            }
+        }
+
+        // 4. Fallback: Search Expense accounts
+        $expenseAcc = Account::where('type', AccountType::Expense)
+            ->where('name', 'like', "%{$name}%")
+            ->first();
+
+        if ($expenseAcc) {
+            return $expenseAcc;
         }
 
         // Parent fallback: Beban Kebutuhan Pokok (6-10000) or Beban Lain-lain (6-30000)

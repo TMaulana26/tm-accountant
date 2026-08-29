@@ -3,6 +3,7 @@
 namespace App\Services\Telegram;
 
 use App\Enums\AccountCategory;
+use App\Enums\AccountType;
 use App\Enums\JournalSource;
 use App\Enums\TelegramMessageStatus;
 use App\Models\Account;
@@ -386,12 +387,22 @@ class TelegramBotService
 
         $remainingBalance = $paymentAccount->fresh()->balance;
 
-        $headerTitle = $isOcr ? '🧾 <b>NOTA / STRUK BERHASIL DIPROSES</b>' : '✅ <b>PENGELUARAN BERHASIL DICATAT</b>';
+        $accountLabel = match ($expenseAccount->type) {
+            AccountType::Liability => 'Akun Kewajiban (Hutang)',
+            AccountType::Asset => ($expenseAccount->category === AccountCategory::AccountsReceivable ? 'Akun Piutang' : 'Akun Aset'),
+            default => 'Akun Beban',
+        };
+
+        $headerTitle = $isOcr ? '🧾 <b>NOTA / STRUK BERHASIL DIPROSES</b>' : match ($expenseAccount->type) {
+            AccountType::Liability => '✅ <b>PEMBAYARAN HUTANG BERHASIL DICATAT</b>',
+            AccountType::Asset => '✅ <b>PINJAMAN / PIUTANG BERHASIL DICATAT</b>',
+            default => '✅ <b>PENGELUARAN BERHASIL DICATAT</b>',
+        };
 
         $text = "{$headerTitle}\n\n"
             ."📝 <b>Keterangan:</b> {$description}\n"
             ."💰 <b>Nominal:</b> <code>{$formattedAmount}</code>\n"
-            ."📁 <b>Akun Beban:</b> [{$expenseAccount->code}] {$expenseAccount->name}\n"
+            ."📁 <b>{$accountLabel}:</b> [{$expenseAccount->code}] {$expenseAccount->name}\n"
             ."💳 <b>Sumber Dana:</b> [{$paymentAccount->code}] {$paymentAccount->name}\n"
             ."📅 <b>Tanggal:</b> {$formattedDate}\n"
             ."🔖 <b>No. Jurnal:</b> <code>{$journal->entry_number}</code>";

@@ -281,3 +281,49 @@ test('bot queries single account balance from natural language question', functi
             str_contains($request['text'], 'Kas Tunai');
     });
 });
+
+test('bot records debt payment to liability account correctly', function () {
+    $mockAi = mock(AiServiceManager::class);
+    $mockAi->shouldReceive('processMessage')
+        ->once()
+        ->with('Bayar hutang ke Tante Lany 300rb via BCA')
+        ->andReturn([
+            'intent' => 'record_expense',
+            'parameters' => [
+                'amount' => 300000,
+                'description' => 'Bayar hutang ke Tante Lany',
+                'expense_account' => 'Hutang Pribadi / Pinjaman',
+                'payment_account' => 'Kas Tunai',
+            ],
+            'reply_text' => null,
+            'raw_response' => [],
+        ]);
+
+    $this->app->instance(AiServiceManager::class, $mockAi);
+
+    $botService = app(TelegramBotService::class);
+    $botService->handleUpdate([
+        'message' => [
+            'message_id' => 501,
+            'chat_id' => 123456789,
+            'from' => ['id' => 123456789, 'username' => 'owner'],
+            'text' => 'Bayar hutang ke Tante Lany 300rb via BCA',
+        ],
+    ]);
+
+    expect(JournalEntry::count())->toBe(1);
+
+    $journal = JournalEntry::with('items.account')->first();
+    $debitItem = $journal->items->firstWhere('debit', '>', 0);
+    $creditItem = $journal->items->firstWhere('credit', '>', 0);
+
+    expect($debitItem->account->type)->toBe(AccountType::Liability)
+        ->and($debitItem->account->code)->toBe('2-10003')
+        ->and($creditItem->account->type)->toBe(AccountType::Asset);
+
+    Http::assertSent(function ($request) {
+        return str_contains($request->url(), 'sendMessage') &&
+            str_contains($request['text'], 'PEMBAYARAN HUTANG') &&
+            str_contains($request['text'], 'Akun Kewajiban (Hutang)');
+    });
+});
