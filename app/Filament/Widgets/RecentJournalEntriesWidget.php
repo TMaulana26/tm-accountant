@@ -7,6 +7,7 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Filament\Widgets\TableWidget;
 use Illuminate\Database\Eloquent\Builder;
+use Livewire\Attributes\On;
 
 class RecentJournalEntriesWidget extends TableWidget
 {
@@ -15,6 +16,13 @@ class RecentJournalEntriesWidget extends TableWidget
     protected static ?int $sort = 3;
 
     protected int|string|array $columnSpan = 'full';
+
+    #[On('echo:accounting,TransactionRecorded')]
+    #[On('echo:accounting,TransactionReverted')]
+    public function refreshTable(): void
+    {
+        // Re-renders recent journal table automatically
+    }
 
     public function table(Table $table): Table
     {

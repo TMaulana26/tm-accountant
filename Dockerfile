@@ -102,7 +102,7 @@ RUN mkdir -p /var/www/html/storage/framework/cache \
              /var/www/html/database && \
     chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache /var/www/html/database
 
-EXPOSE 80
+EXPOSE 80 8080
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["/usr/bin/supervisord", "-c", "/etc/supervisord.conf"]

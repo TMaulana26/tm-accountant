@@ -6,9 +6,18 @@ use App\Enums\TelegramMessageStatus;
 use App\Models\TelegramMessage;
 use Filament\Widgets\StatsOverviewWidget as BaseWidget;
 use Filament\Widgets\StatsOverviewWidget\Stat;
+use Livewire\Attributes\On;
 
 class TelegramChatStatsWidget extends BaseWidget
 {
+    #[On('echo:accounting,TelegramMessageLogged')]
+    #[On('echo:accounting,TransactionRecorded')]
+    #[On('echo:accounting,TransactionReverted')]
+    public function refreshStats(): void
+    {
+        // Re-renders chat stats automatically
+    }
+
     protected function getStats(): array
     {
         return [

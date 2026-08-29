@@ -12,6 +12,7 @@ use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
+use Livewire\Attributes\On;
 
 class GeneralLedgerReport extends Page
 {
@@ -26,6 +27,14 @@ class GeneralLedgerReport extends Page
     protected static ?string $title = 'Laporan Buku Besar (General Ledger)';
 
     protected static ?int $navigationSort = 4;
+
+    #[On('echo:accounting,TransactionRecorded')]
+    #[On('echo:accounting,TransactionReverted')]
+    #[On('echo:accounting,WalletBalanceUpdated')]
+    public function refreshReport(): void
+    {
+        // Re-renders report automatically
+    }
 
     public ?array $data = [];
 

@@ -6,6 +6,9 @@ use App\Enums\AccountCategory;
 use App\Enums\AccountType;
 use App\Enums\JournalSource;
 use App\Enums\TelegramMessageStatus;
+use App\Events\TransactionRecorded;
+use App\Events\TransactionReverted;
+use App\Events\WalletBalanceUpdated;
 use App\Models\Account;
 use App\Models\JournalEntry;
 use App\Models\TelegramMessage;
@@ -47,7 +50,7 @@ class AccountingService
             throw new InvalidArgumentException('Nilai transaksi jurnal harus lebih besar dari 0.');
         }
 
-        return DB::transaction(function () use ($entryData, $items) {
+        $entry = DB::transaction(function () use ($entryData, $items) {
             $entry = JournalEntry::create([
                 'date' => isset($entryData['date']) ? Carbon::parse($entryData['date']) : now(),
                 'description' => $entryData['description'],
@@ -68,6 +71,17 @@ class AccountingService
 
             return $entry->load('items.account');
         });
+
+        // Broadcast real-time events via Laravel Reverb
+        event(new TransactionRecorded($entry));
+
+        $accountIds = collect($items)->pluck('account_id')->unique();
+        $affectedWallets = Account::whereIn('id', $accountIds)->where('category', AccountCategory::CashAndBank)->get();
+        foreach ($affectedWallets as $wallet) {
+            event(new WalletBalanceUpdated($wallet));
+        }
+
+        return $entry;
     }
 
     /**
@@ -135,7 +149,9 @@ class AccountingService
             return false;
         }
 
-        return DB::transaction(function () use ($entry) {
+        $affectedAccountIds = $entry->items()->pluck('account_id')->unique();
+
+        $result = DB::transaction(function () use ($entry) {
             $entryNumber = $entry->entry_number;
             $description = $entry->description;
 
@@ -157,6 +173,17 @@ class AccountingService
 
             return $entry->delete();
         });
+
+        if ($result) {
+            event(new TransactionReverted($entry));
+
+            $affectedWallets = Account::whereIn('id', $affectedAccountIds)->where('category', AccountCategory::CashAndBank)->get();
+            foreach ($affectedWallets as $wallet) {
+                event(new WalletBalanceUpdated($wallet));
+            }
+        }
+
+        return (bool) $result;
     }
 
     /**

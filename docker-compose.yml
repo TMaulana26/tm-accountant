@@ -8,6 +8,7 @@ services:
     restart: unless-stopped
     ports:
       - "80:80"
+      - "8080:8080"
     volumes:
       - ./.env:/var/www/html/.env
       - ./database:/var/www/html/database

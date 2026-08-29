@@ -16,6 +16,7 @@ use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
+use Livewire\Attributes\On;
 
 class TelegramChatHistoryPage extends Page
 {
@@ -30,6 +31,14 @@ class TelegramChatHistoryPage extends Page
     protected static ?string $title = 'Riwayat Percakapan Telegram Bot';
 
     protected static ?int $navigationSort = 2;
+
+    #[On('echo:accounting,TelegramMessageLogged')]
+    #[On('echo:accounting,TransactionRecorded')]
+    #[On('echo:accounting,TransactionReverted')]
+    public function refreshChat(): void
+    {
+        // Re-renders chat history live stream automatically
+    }
 
     protected function getHeaderWidgets(): array
     {

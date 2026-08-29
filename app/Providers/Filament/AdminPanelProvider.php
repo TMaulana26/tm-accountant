@@ -6,6 +6,7 @@ use App\Filament\Pages\Auth\EditProfile;
 use App\Filament\Pages\Auth\Login;
 use App\Filament\Widgets\AccountBalanceWidget;
 use App\Filament\Widgets\IncomeExpenseChartWidget;
+use App\Filament\Widgets\PinnedWalletsWidget;
 use App\Filament\Widgets\RecentJournalEntriesWidget;
 use App\Filament\Widgets\WalletBreakdownWidget;
 use App\Filament\Widgets\WalletOnboardingWidget;
@@ -64,6 +65,7 @@ class AdminPanelProvider extends PanelProvider
                 Dashboard::class,
             ])
             ->widgets([
+                PinnedWalletsWidget::class,
                 WalletOnboardingWidget::class,
                 AccountBalanceWidget::class,
                 IncomeExpenseChartWidget::class,

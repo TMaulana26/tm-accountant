@@ -19,6 +19,7 @@ use Filament\Schemas\Components\Wizard\Step;
 use Filament\Schemas\Concerns\InteractsWithSchemas;
 use Filament\Schemas\Contracts\HasSchemas;
 use Filament\Widgets\Widget;
+use Livewire\Attributes\On;
 
 class WalletOnboardingWidget extends Widget implements HasActions, HasSchemas
 {
@@ -30,6 +31,14 @@ class WalletOnboardingWidget extends Widget implements HasActions, HasSchemas
     protected int|string|array $columnSpan = 'full';
 
     protected string $view = 'filament.widgets.wallet-onboarding-widget';
+
+    #[On('echo:accounting,WalletBalanceUpdated')]
+    #[On('echo:accounting,TransactionRecorded')]
+    #[On('echo:accounting,TransactionReverted')]
+    public function refreshOnboarding(): void
+    {
+        // Re-renders onboarding widget status
+    }
 
     public static array $presets = [
         'kas_tunai' => ['name' => 'Kas Tunai (Dompet Fisik)', 'type' => 'Uang Tunai'],

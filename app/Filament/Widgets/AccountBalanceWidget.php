@@ -7,10 +7,19 @@ use App\Models\Account;
 use App\Services\Accounting\FinancialReportService;
 use Filament\Widgets\StatsOverviewWidget;
 use Filament\Widgets\StatsOverviewWidget\Stat;
+use Livewire\Attributes\On;
 
 class AccountBalanceWidget extends StatsOverviewWidget
 {
     protected static ?int $sort = 1;
+
+    #[On('echo:accounting,TransactionRecorded')]
+    #[On('echo:accounting,TransactionReverted')]
+    #[On('echo:accounting,WalletBalanceUpdated')]
+    public function refreshStats(): void
+    {
+        // Re-renders widget stats automatically
+    }
 
     protected function getStats(): array
     {

@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\TelegramMessageStatus;
+use App\Events\TelegramMessageLogged;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -26,6 +27,15 @@ class TelegramMessage extends Model
                 'updated' => "Memproses pesan Telegram: {$this->intent} (".($this->status?->value ?? 'processed').')',
                 default => "Aktivitas pesan Telegram #{$this->telegram_message_id}",
             });
+    }
+
+    protected static function booted(): void
+    {
+        static::saved(function (TelegramMessage $message) {
+            if ($message->ai_response !== null) {
+                event(new TelegramMessageLogged($message));
+            }
+        });
     }
 
     protected $fillable = [

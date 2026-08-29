@@ -4,10 +4,20 @@ namespace App\Filament\Widgets;
 
 use Filament\Widgets\StatsOverviewWidget as BaseWidget;
 use Filament\Widgets\StatsOverviewWidget\Stat;
+use Livewire\Attributes\On;
 use Spatie\Activitylog\Models\Activity;
 
 class ActivityLogStatsWidget extends BaseWidget
 {
+    #[On('echo:accounting,TransactionRecorded')]
+    #[On('echo:accounting,TransactionReverted')]
+    #[On('echo:accounting,TelegramMessageLogged')]
+    #[On('echo:accounting,WalletBalanceUpdated')]
+    public function refreshStats(): void
+    {
+        // Re-renders activity stats automatically
+    }
+
     protected function getStats(): array
     {
         return [

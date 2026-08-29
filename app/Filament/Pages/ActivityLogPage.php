@@ -18,6 +18,7 @@ use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Livewire\Attributes\On;
 use Spatie\Activitylog\Models\Activity;
 
 class ActivityLogPage extends Page implements HasTable
@@ -35,6 +36,15 @@ class ActivityLogPage extends Page implements HasTable
     protected static ?string $title = 'Log Aktivitas Sistem (Audit Trail)';
 
     protected static ?int $navigationSort = 1;
+
+    #[On('echo:accounting,TransactionRecorded')]
+    #[On('echo:accounting,TransactionReverted')]
+    #[On('echo:accounting,TelegramMessageLogged')]
+    #[On('echo:accounting,WalletBalanceUpdated')]
+    public function refreshActivityLogTable(): void
+    {
+        // Re-renders activity log table automatically
+    }
 
     protected function getHeaderWidgets(): array
     {

@@ -11,6 +11,7 @@ use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
+use Livewire\Attributes\On;
 
 class CashFlowReport extends Page
 {
@@ -25,6 +26,14 @@ class CashFlowReport extends Page
     protected static ?string $title = 'Laporan Arus Kas (Cash Flow Statement)';
 
     protected static ?int $navigationSort = 3;
+
+    #[On('echo:accounting,TransactionRecorded')]
+    #[On('echo:accounting,TransactionReverted')]
+    #[On('echo:accounting,WalletBalanceUpdated')]
+    public function refreshReport(): void
+    {
+        // Re-renders report automatically
+    }
 
     public ?array $data = [];
 

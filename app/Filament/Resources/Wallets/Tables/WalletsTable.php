@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Wallets\Tables;
 
 use App\Enums\JournalSource;
+use App\Events\WalletBalanceUpdated;
 use App\Models\Account;
 use App\Services\Accounting\AccountingService;
 use Carbon\Carbon;
@@ -52,6 +53,15 @@ class WalletsTable
                     ->falseColor('gray')
                     ->alignCenter(),
 
+                IconColumn::make('is_pinned')
+                    ->label('📌 Pin Dashboard')
+                    ->boolean()
+                    ->trueIcon('heroicon-s-bookmark')
+                    ->falseIcon('heroicon-o-minus')
+                    ->trueColor('primary')
+                    ->falseColor('gray')
+                    ->alignCenter(),
+
                 IconColumn::make('is_active')
                     ->label('Status')
                     ->boolean()
@@ -59,6 +69,20 @@ class WalletsTable
             ])
             ->recordActions([
                 ActionGroup::make([
+                    Action::make('togglePin')
+                        ->label(fn (Account $record): string => $record->is_pinned ? 'Lepas Pin Dashboard' : '📌 Pin ke Dashboard')
+                        ->icon(fn (Account $record): string => $record->is_pinned ? 'heroicon-m-bookmark-slash' : 'heroicon-m-bookmark')
+                        ->color(fn (Account $record): string => $record->is_pinned ? 'gray' : 'primary')
+                        ->action(function (Account $record) {
+                            $isPinned = $record->togglePin();
+                            event(new WalletBalanceUpdated($record));
+                            Notification::make()
+                                ->title($isPinned ? '📌 Dompet Disematkan ke Dashboard' : 'Pin Dompet Dilepas')
+                                ->body("{$record->name} ".($isPinned ? 'sekarang tampil di widget favorit Dashboard.' : 'tidak lagi disematkan di Dashboard.'))
+                                ->success()
+                                ->send();
+                        }),
+
                     Action::make('setDefault')
                         ->label('Jadikan Dompet Utama')
                         ->icon('heroicon-m-star')
@@ -66,6 +90,7 @@ class WalletsTable
                         ->hidden(fn (Account $record): bool => $record->is_default)
                         ->action(function (Account $record) {
                             $record->markAsDefault();
+                            event(new WalletBalanceUpdated($record));
                             Notification::make()
                                 ->title('Dompet Utama Diperbarui')
                                 ->body("{$record->name} sekarang menjadi dompet default.")

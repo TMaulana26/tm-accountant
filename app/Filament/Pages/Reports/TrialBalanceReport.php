@@ -10,6 +10,7 @@ use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
+use Livewire\Attributes\On;
 
 class TrialBalanceReport extends Page
 {
@@ -24,6 +25,14 @@ class TrialBalanceReport extends Page
     protected static ?string $title = 'Laporan Neraca Saldo (Trial Balance)';
 
     protected static ?int $navigationSort = 5;
+
+    #[On('echo:accounting,TransactionRecorded')]
+    #[On('echo:accounting,TransactionReverted')]
+    #[On('echo:accounting,WalletBalanceUpdated')]
+    public function refreshReport(): void
+    {
+        // Re-renders report automatically
+    }
 
     public ?array $data = [];
 

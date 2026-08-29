@@ -11,6 +11,7 @@ use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
+use Livewire\Attributes\On;
 
 class IncomeStatementReport extends Page
 {
@@ -25,6 +26,13 @@ class IncomeStatementReport extends Page
     protected static ?string $title = 'Laporan Laba Rugi (Income Statement)';
 
     protected static ?int $navigationSort = 1;
+
+    #[On('echo:accounting,TransactionRecorded')]
+    #[On('echo:accounting,TransactionReverted')]
+    public function refreshReport(): void
+    {
+        // Re-renders report automatically
+    }
 
     public ?array $data = [];
 

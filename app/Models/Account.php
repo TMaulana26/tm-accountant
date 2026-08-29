@@ -43,6 +43,7 @@ class Account extends Model
         'parent_id',
         'is_system',
         'is_default',
+        'is_pinned',
         'is_active',
         'color',
         'icon',
@@ -56,6 +57,7 @@ class Account extends Model
             'category' => AccountCategory::class,
             'is_system' => 'boolean',
             'is_default' => 'boolean',
+            'is_pinned' => 'boolean',
             'is_active' => 'boolean',
         ];
     }
@@ -66,9 +68,22 @@ class Account extends Model
         $this->update(['is_default' => true, 'is_active' => true]);
     }
 
+    public function togglePin(): bool
+    {
+        $newPinned = ! $this->is_pinned;
+        $this->update(['is_pinned' => $newPinned]);
+
+        return $newPinned;
+    }
+
     public function scopeWallets(Builder $query): Builder
     {
         return $query->where('category', AccountCategory::CashAndBank)->whereNotNull('parent_id');
+    }
+
+    public function scopePinned(Builder $query): Builder
+    {
+        return $query->where('is_pinned', true);
     }
 
     public function getWalletTypeLabelAttribute(): string

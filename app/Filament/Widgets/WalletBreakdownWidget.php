@@ -5,6 +5,7 @@ namespace App\Filament\Widgets;
 use App\Enums\AccountCategory;
 use App\Models\Account;
 use Filament\Widgets\ChartWidget;
+use Livewire\Attributes\On;
 
 class WalletBreakdownWidget extends ChartWidget
 {
@@ -16,6 +17,14 @@ class WalletBreakdownWidget extends ChartWidget
         'default' => 'full',
         'lg' => 1,
     ];
+
+    #[On('echo:accounting,WalletBalanceUpdated')]
+    #[On('echo:accounting,TransactionRecorded')]
+    #[On('echo:accounting,TransactionReverted')]
+    public function refreshChart(): void
+    {
+        // Re-renders chart automatically
+    }
 
     protected function getData(): array
     {

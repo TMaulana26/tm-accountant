@@ -7,6 +7,7 @@ use App\Models\Account;
 use App\Models\JournalItem;
 use Filament\Widgets\ChartWidget;
 use Illuminate\Database\Eloquent\Builder;
+use Livewire\Attributes\On;
 
 class IncomeExpenseChartWidget extends ChartWidget
 {
@@ -18,6 +19,13 @@ class IncomeExpenseChartWidget extends ChartWidget
         'default' => 'full',
         'lg' => 1,
     ];
+
+    #[On('echo:accounting,TransactionRecorded')]
+    #[On('echo:accounting,TransactionReverted')]
+    public function refreshChart(): void
+    {
+        // Re-renders chart automatically
+    }
 
     protected function getData(): array
     {

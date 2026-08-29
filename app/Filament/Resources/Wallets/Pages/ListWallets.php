@@ -7,10 +7,19 @@ use Filament\Actions\Action;
 use Filament\Actions\CreateAction;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ListRecords;
+use Livewire\Attributes\On;
 
 class ListWallets extends ListRecords
 {
     protected static string $resource = WalletResource::class;
+
+    #[On('echo:accounting,WalletBalanceUpdated')]
+    #[On('echo:accounting,TransactionRecorded')]
+    #[On('echo:accounting,TransactionReverted')]
+    public function refreshWalletsTable(): void
+    {
+        // Re-renders wallets table automatically
+    }
 
     protected function getHeaderActions(): array
     {
