@@ -431,3 +431,33 @@ test('bot cleans redundant payment phrases from description', function () {
         ->and($botService->cleanDescription('Beli bensin pertalite via bca'))->toBe('Beli bensin pertalite')
         ->and($botService->cleanDescription('Beli Nasi Padang'))->toBe('Beli Nasi Padang');
 });
+
+test('bot returns active AI model and provider info when /model command is received', function () {
+    $botService = app(TelegramBotService::class);
+
+    Config::set('ai.default', 'openrouter');
+    Config::set('ai.providers.openrouter.model', 'minimax/minimax-m3:free');
+
+    $botService->handleUpdate([
+        'message' => [
+            'message_id' => 801,
+            'chat_id' => 123456789,
+            'from' => ['id' => 123456789, 'username' => 'owner'],
+            'text' => '/model',
+        ],
+    ]);
+
+    expect(JournalEntry::count())->toBe(0);
+
+    Http::assertSent(function ($request) {
+        return str_contains($request->url(), 'sendMessage') &&
+            str_contains($request['text'], 'INFORMASI ENGINE & MODEL AI') &&
+            str_contains($request['text'], 'minimax/minimax-m3:free') &&
+            str_contains($request['text'], 'OpenRouter');
+    });
+
+    $messageLog = TelegramMessage::where('telegram_message_id', 801)->first();
+    expect($messageLog)->not->toBeNull()
+        ->and($messageLog->intent)->toBe('query_ai_model')
+        ->and($messageLog->ai_response)->toContain('minimax/minimax-m3:free');
+});

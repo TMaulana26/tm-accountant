@@ -323,4 +323,50 @@ PROMPT;
             ],
         ];
     }
+
+    /**
+     * Get active AI configuration details.
+     */
+    public function getActiveModelDetails(): array
+    {
+        $providerName = config('ai.default', 'deepseek');
+        $providerConfig = config("ai.providers.{$providerName}", []);
+
+        $providerLabel = match (strtolower($providerName)) {
+            'deepseek' => 'DeepSeek AI Cloud',
+            'openrouter' => 'OpenRouter (Multi-Model Gateway)',
+            'gemini' => 'Google Gemini (Native API)',
+            'openai' => 'OpenAI (Official API)',
+            'ollama' => 'Ollama (Local Offline LLM)',
+            'groq' => 'Groq Cloud (Fast LPU)',
+            'lmstudio' => 'LM Studio (Local Server)',
+            'bai' => 'B.AI Cloud',
+            'custom' => 'Custom OpenAI-Compatible API',
+            default => ucfirst($providerName),
+        };
+
+        $model = $providerConfig['model'] ?? env('AI_MODEL', 'Unknown Model');
+        $baseUrl = $providerConfig['base_url'] ?? env('AI_BASE_URL', '-');
+        $timeout = (int) ($providerConfig['timeout'] ?? config('ai.timeout', 90));
+        $supportsVision = (bool) ($providerConfig['supports_vision'] ?? false);
+        $ocrMode = config('ai.ocr_mode', 'gemini');
+
+        $ocrLabel = match ($ocrMode) {
+            'gemini' => 'Google Gemini Vision (Free Tier)',
+            'auto' => $supportsVision ? 'Model Utama (Multimodal Vision)' : 'Google Gemini Fallback',
+            'disabled' => 'Nonaktif (Hanya Teks)',
+            default => ucfirst($ocrMode),
+        };
+
+        return [
+            'provider' => $providerName,
+            'provider_label' => $providerLabel,
+            'model' => $model,
+            'base_url' => $baseUrl,
+            'timeout' => $timeout,
+            'supports_vision' => $supportsVision,
+            'ocr_mode' => $ocrMode,
+            'ocr_label' => $ocrLabel,
+        ];
+    }
 }

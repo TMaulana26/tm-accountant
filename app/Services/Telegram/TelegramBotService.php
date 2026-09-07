@@ -151,6 +151,13 @@ class TelegramBotService
             return;
         }
 
+        // Command: /model or /ai
+        if (in_array(strtolower($text), ['/model', 'model', '/ai', 'ai', 'cek model', 'info model', '/provider', 'provider'])) {
+            $this->sendModelInfo($chatId, $telegramLog);
+
+            return;
+        }
+
         // Command: /default or /dompet
         if (in_array(strtolower($text), ['/default', '/dompet', 'dompet', 'default'])) {
             $this->sendDefaultWalletPicker($chatId, $telegramLog);
@@ -902,6 +909,27 @@ class TelegramBotService
     }
 
     /**
+     * Send active AI model and provider information.
+     */
+    protected function sendModelInfo(string $chatId, ?TelegramMessage $log = null): void
+    {
+        $details = $this->aiManager->getActiveModelDetails();
+
+        $text = "🤖 <b>INFORMASI ENGINE & MODEL AI</b>\n"
+            ."━━━━━━━━━━━━━━━━━━━━\n\n"
+            ."🧠 <b>Model Aktif:</b>\n<code>{$details['model']}</code>\n\n"
+            ."🏢 <b>AI Provider:</b>\n<b>{$details['provider_label']}</b> (<code>{$details['provider']}</code>)\n\n"
+            ."🌐 <b>API Endpoint:</b>\n<code>{$details['base_url']}</code>\n\n"
+            ."👁️ <b>Vision OCR Struk:</b>\n<b>{$details['ocr_label']}</b>\n\n"
+            ."⏱️ <b>Timeout Request:</b>\n<code>{$details['timeout']} detik</code>\n\n"
+            ."━━━━━━━━━━━━━━━━━━━━\n"
+            .'💡 <i>Tips: Anda dapat mengganti provider atau model AI kapan saja melalui file <code>.env</code> atau perintah <code>php artisan tm-accountant</code> di terminal.</i>';
+
+        $this->sendMessage($chatId, $text);
+        $log?->update(['intent' => 'query_ai_model', 'ai_response' => $text]);
+    }
+
+    /**
      * Send Help message.
      */
     protected function sendHelpMessage(string $chatId, ?TelegramMessage $log = null): void
@@ -926,11 +954,12 @@ Anda dapat mencatat transaksi keuangan secara instan hanya dengan mengirimkan pe
 • <i>"topup gopay dari bca 200rb"</i>
 • <i>"tarik tunai 500k dari mandiri"</i>
 
-📈 <b>Cek Kondisi Keuangan:</b>
+📈 <b>Cek Kondisi & Info Sistem:</b>
 • <i>"keuangan saya 1 minggu"</i>
 • <i>"laporan pengeluaran bulan ini"</i>
-• <i>"saldo"</i> / <i>/saldo</i>
+• <i>/saldo</i> (Cek Saldo Kas & Bank)
 • <i>/default</i> (Ganti dompet default)
+• <i>/model</i> (Cek model & provider AI aktif)
 
 Setiap pencatatan transaksi otomatis dilengkapi tombol <b>Undo / Batal</b> jika ada kesalahan.
 HELP;
