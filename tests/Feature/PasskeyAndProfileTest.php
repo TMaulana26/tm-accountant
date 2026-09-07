@@ -60,6 +60,36 @@ test('passkey login options endpoint returns correct payload', function () {
     expect($response->json('userEmail'))->toBe('admin@example.com');
 });
 
+test('passkey login endpoint authenticates user who registered passkey', function () {
+    // Register passkey for user
+    $this->user->update([
+        'passkey_credentials' => [
+            [
+                'id' => 'mobile_iphone_touchid_id_999',
+                'device_name' => 'iOS Face ID / Touch ID',
+                'registered_at' => now()->toDateTimeString(),
+            ],
+        ],
+    ]);
+
+    // Check login-options
+    $optionsRes = $this->getJson('/auth/passkey/login-options');
+    $optionsRes->assertStatus(200);
+    expect($optionsRes->json('hasCredentials'))->toBeTrue()
+        ->and($optionsRes->json('allowCredentials'))->toHaveCount(1)
+        ->and($optionsRes->json('allowCredentials.0.id'))->toBe('mobile_iphone_touchid_id_999');
+
+    // Attempt login with the registered credential ID
+    $loginRes = $this->postJson('/auth/passkey/login', [
+        'id' => 'mobile_iphone_touchid_id_999',
+    ]);
+
+    $loginRes->assertStatus(200)
+        ->assertJson(['ok' => true]);
+
+    $this->assertAuthenticatedAs($this->user);
+});
+
 test('authenticated user can register and clear passkeys', function () {
     $this->actingAs($this->user);
 

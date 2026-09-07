@@ -19,25 +19,54 @@ class PasskeyAuthController extends Controller
         $challenge = Str::random(32);
         session(['passkey_login_challenge' => $challenge]);
 
-        $user = User::first();
-        $credentials = $user?->passkey_credentials ?? [];
+        $email = $request->query('email');
+        $user = null;
+
+        if (! empty($email)) {
+            $user = User::where('email', $email)->first();
+        }
 
         $allowCredentials = [];
-        foreach ($credentials as $cred) {
-            if (! empty($cred['id'])) {
-                $allowCredentials[] = [
-                    'id' => $cred['id'],
-                    'type' => 'public-key',
-                    'transports' => ['internal', 'hybrid'],
-                ];
+        $selectedEmail = null;
+
+        if ($user) {
+            $selectedEmail = $user->email;
+            foreach (($user->passkey_credentials ?? []) as $cred) {
+                if (! empty($cred['id'])) {
+                    $allowCredentials[] = [
+                        'id' => $cred['id'],
+                        'type' => 'public-key',
+                        'transports' => ['internal', 'hybrid'],
+                    ];
+                }
+            }
+        } else {
+            // Collect credentials from all users who have registered passkeys
+            $usersWithPasskeys = User::whereNotNull('passkey_credentials')->get();
+            foreach ($usersWithPasskeys as $u) {
+                foreach (($u->passkey_credentials ?? []) as $cred) {
+                    if (! empty($cred['id'])) {
+                        $allowCredentials[] = [
+                            'id' => $cred['id'],
+                            'type' => 'public-key',
+                            'transports' => ['internal', 'hybrid'],
+                        ];
+                    }
+                }
+                if ($selectedEmail === null && ! empty($u->passkey_credentials)) {
+                    $selectedEmail = $u->email;
+                }
             }
         }
 
+        // Clean rpId: strip port if any (e.g. host:port)
+        $rpId = explode(':', $request->getHost())[0];
+
         return response()->json([
             'challenge' => base64_encode($challenge),
-            'rpId' => $request->getHost(),
+            'rpId' => $rpId,
             'allowCredentials' => $allowCredentials,
-            'userEmail' => $user?->email ?? 'admin@example.com',
+            'userEmail' => $selectedEmail ?? 'admin@example.com',
             'hasCredentials' => ! empty($allowCredentials),
         ]);
     }
@@ -47,7 +76,39 @@ class PasskeyAuthController extends Controller
      */
     public function login(Request $request): JsonResponse
     {
-        $user = User::first();
+        $credentialId = $request->input('id');
+        $user = null;
+
+        if (! empty($credentialId)) {
+            // Find the exact user who owns this passkey credential
+            $user = User::whereNotNull('passkey_credentials')->get()->first(function (User $u) use ($credentialId) {
+                $creds = $u->passkey_credentials ?? [];
+                foreach ($creds as $c) {
+                    if (($c['id'] ?? null) === $credentialId) {
+                        return true;
+                    }
+                }
+
+                return false;
+            });
+        }
+
+        // Fallback: check by email if provided
+        if (! $user && $request->filled('email')) {
+            $user = User::where('email', $request->input('email'))->first();
+        }
+
+        // Fallback: find any user with registered biometric credentials
+        if (! $user) {
+            $user = User::whereNotNull('passkey_credentials')->get()->first(function (User $u) {
+                return ! empty($u->passkey_credentials);
+            });
+        }
+
+        // Fallback: first user
+        if (! $user) {
+            $user = User::first();
+        }
 
         if (! $user) {
             return response()->json([
@@ -61,7 +122,7 @@ class PasskeyAuthController extends Controller
         if (empty($credentials)) {
             return response()->json([
                 'ok' => false,
-                'message' => 'Biometrik belum diaktifkan pada akun ini. Silakan login dengan password terlebih dahulu.',
+                'message' => 'Biometrik belum diaktifkan pada akun ini. Silakan login dengan password terlebih dahulu, lalu aktifkan di menu profil.',
             ], 400);
         }
 
@@ -88,11 +149,14 @@ class PasskeyAuthController extends Controller
         $challenge = Str::random(32);
         session(['passkey_register_challenge' => $challenge]);
 
+        // Clean rpId: strip port if any
+        $rpId = explode(':', $request->getHost())[0];
+
         return response()->json([
             'challenge' => base64_encode($challenge),
             'rp' => [
                 'name' => config('app.name', 'TM Accountant'),
-                'id' => $request->getHost(),
+                'id' => $rpId,
             ],
             'user' => [
                 'id' => base64_encode((string) $user->id),
@@ -104,7 +168,6 @@ class PasskeyAuthController extends Controller
                 ['alg' => -257, 'type' => 'public-key'], // RS256
             ],
             'authenticatorSelection' => [
-                'authenticatorAttachment' => 'platform',
                 'userVerification' => 'preferred',
                 'residentKey' => 'preferred',
             ],
@@ -123,30 +186,46 @@ class PasskeyAuthController extends Controller
         }
 
         $credentialId = $request->input('id');
+        if (empty($credentialId)) {
+            return response()->json(['ok' => false, 'message' => 'ID Kredensial tidak valid.'], 422);
+        }
+
         $deviceName = $request->input('device_name', $request->header('User-Agent', 'Perangkat'));
 
         // Sanitize device name
         $agent = $request->header('User-Agent', '');
-        if (str_contains($agent, 'Windows')) {
+        if (str_contains($agent, 'iPhone') || str_contains($agent, 'iPad')) {
+            $deviceName = 'iOS Face ID / Touch ID';
+        } elseif (str_contains($agent, 'Android')) {
+            $deviceName = 'Android Fingerprint / Biometrik';
+        } elseif (str_contains($agent, 'Windows')) {
             $deviceName = 'Windows Hello / PC';
         } elseif (str_contains($agent, 'Macintosh')) {
             $deviceName = 'Mac Touch ID / Apple';
-        } elseif (str_contains($agent, 'Android')) {
-            $deviceName = 'Android Fingerprint';
-        } elseif (str_contains($agent, 'iPhone') || str_contains($agent, 'iPad')) {
-            $deviceName = 'iOS Face ID / Touch ID';
         }
 
         $credentials = $user->passkey_credentials ?? [];
-        $credentials[] = [
-            'id' => $credentialId,
-            'device_name' => $deviceName,
-            'registered_at' => now()->toDateTimeString(),
-        ];
 
-        $user->update([
-            'passkey_credentials' => $credentials,
-        ]);
+        // Check if credential ID already exists to avoid duplicate entries
+        $exists = false;
+        foreach ($credentials as $c) {
+            if (($c['id'] ?? null) === $credentialId) {
+                $exists = true;
+                break;
+            }
+        }
+
+        if (! $exists) {
+            $credentials[] = [
+                'id' => $credentialId,
+                'device_name' => $deviceName,
+                'registered_at' => now()->translatedFormat('d M Y H:i:s'),
+            ];
+
+            $user->update([
+                'passkey_credentials' => $credentials,
+            ]);
+        }
 
         return response()->json([
             'ok' => true,

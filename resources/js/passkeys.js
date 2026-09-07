@@ -35,15 +35,31 @@ window.loginWithPasskey = async function () {
         return;
     }
 
+    const btn = document.getElementById('btn-biometric-login');
+
     try {
-        const btn = document.getElementById('btn-biometric-login');
         if (btn) btn.disabled = true;
 
-        const optionsRes = await fetch('/auth/passkey/login-options');
+        // Try reading email from the login input field if entered
+        const emailInput = document.querySelector('input[type="email"]')
+            || document.querySelector('input[name="email"]')
+            || document.querySelector('input[name="data.email"]')
+            || document.getElementById('data.email');
+        const email = emailInput?.value?.trim() || '';
+
+        const url = email ? `/auth/passkey/login-options?email=${encodeURIComponent(email)}` : '/auth/passkey/login-options';
+        const optionsRes = await fetch(url, {
+            headers: { 'Accept': 'application/json' },
+        });
+
+        if (!optionsRes.ok) {
+            throw new Error(`Server status ${optionsRes.status}`);
+        }
+
         const options = await optionsRes.json();
 
         if (!options.hasCredentials) {
-            alert('Belum ada sidik jari / FaceID yang didaftarkan pada akun ini. Silakan login dengan password terlebih dahulu, lalu aktifkan biometrik di menu profil.');
+            alert('Belum ada kredensial biometrik (Passkey / Sidik Jari) yang terdaftar. Silakan masuk menggunakan kata sandi (password) terlebih dahulu, lalu daftarkan perangkat di halaman Profil.');
             if (btn) btn.disabled = false;
             return;
         }
@@ -80,6 +96,7 @@ window.loginWithPasskey = async function () {
                 id: assertion.id,
                 rawId: arrayBufferToBase64(assertion.rawId),
                 type: assertion.type,
+                email: email,
             }),
         });
 
@@ -93,8 +110,10 @@ window.loginWithPasskey = async function () {
         }
     } catch (err) {
         console.error('Passkey login error:', err);
-        alert('Gagal memverifikasi biometrik: ' + (err.message || 'Dibatalkan oleh pengguna.'));
-        const btn = document.getElementById('btn-biometric-login');
+        // Ignore user cancellation without annoying alerts
+        if (err.name !== 'NotAllowedError') {
+            alert('Autentikasi biometrik tidak dapat diselesaikan: ' + (err.message || ''));
+        }
         if (btn) btn.disabled = false;
     }
 };
