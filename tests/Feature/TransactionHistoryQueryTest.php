@@ -316,3 +316,52 @@ test('Telegram bot groups transactions by date and cleans wallet display names',
             && str_contains($text, '• Paket Ayam Crispy — <code>Rp 22.000</code> <i>(GoPay)</i>');
     });
 });
+
+test('Telegram bot displays all transactions even when more than 25 without truncation', function () {
+    // Create 30 transactions
+    for ($i = 1; $i <= 30; $i++) {
+        $day = str_pad((string) (($i % 5) + 1), 2, '0', STR_PAD_LEFT);
+        $this->accountingService->createJournalEntry([
+            'date' => Carbon::parse("2026-09-{$day}"),
+            'description' => "Item Belanja Ke-{$i}",
+            'source' => JournalSource::Telegram,
+        ], [
+            ['account_id' => $this->foodAccount->id, 'debit' => 10000, 'credit' => 0],
+            ['account_id' => $this->cashAccount->id, 'debit' => 0, 'credit' => 10000],
+        ]);
+    }
+
+    $mockAi = mock(AiServiceManager::class);
+    $mockAi->shouldReceive('processMessage')
+        ->once()
+        ->andReturn([
+            'intent' => 'query_transactions',
+            'parameters' => [
+                'period' => 'this_month',
+            ],
+            'reply_text' => null,
+        ]);
+
+    app()->instance(AiServiceManager::class, $mockAi);
+
+    $botService = app(TelegramBotService::class);
+
+    $botService->handleUpdate([
+        'message' => [
+            'message_id' => 204,
+            'chat' => ['id' => 123456789],
+            'from' => ['id' => 123456789, 'username' => 'testuser'],
+            'text' => 'cek semua transaksi bulan ini',
+        ],
+    ]);
+
+    Http::assertSent(function ($request) {
+        $body = $request->data();
+        $text = $body['text'] ?? '';
+
+        return str_contains($text, '30 Transaksi')
+            && str_contains($text, 'Item Belanja Ke-1')
+            && str_contains($text, 'Item Belanja Ke-30')
+            && ! str_contains($text, 'tercatat di web admin');
+    });
+});

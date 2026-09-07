@@ -868,17 +868,17 @@ class TelegramBotService
             $text .= "💳 <b>Sisa Saldo {$cleanWallet}:</b> <code>{$formattedBal}</code>\n";
         }
 
-        $maxDisplay = 25;
-        $itemsToDisplay = array_slice($transactions, 0, $maxDisplay);
-
-        // Group transactions by date
+        // Group all transactions by date (no limit)
         $grouped = [];
-        foreach ($itemsToDisplay as $t) {
+        foreach ($transactions as $t) {
             $grouped[$t['date']][] = $t;
         }
 
+        $messages = [];
+        $currentMessage = $text;
+
         foreach ($grouped as $date => $items) {
-            $text .= "\n📅 <b>{$date}</b>\n";
+            $section = "\n📅 <b>{$date}</b>\n";
             foreach ($items as $item) {
                 $amt = 'Rp '.number_format($item['amount'], 0, ',', '.');
                 $walletSuffix = '';
@@ -890,17 +890,27 @@ class TelegramBotService
                     }
                 }
 
-                $text .= "• {$item['description']} — <code>{$amt}</code>{$walletSuffix}\n";
+                $section .= "• {$item['description']} — <code>{$amt}</code>{$walletSuffix}\n";
+            }
+
+            // If adding this date section exceeds ~3800 characters, split into next message
+            if (mb_strlen($currentMessage.$section) > 3800) {
+                $messages[] = $currentMessage;
+                $currentMessage = "{$emoji} <b>{$topic} (Lanjutan)</b>\n━━━━━━━━━━━━━━━━━━━━\n".$section;
+            } else {
+                $currentMessage .= $section;
             }
         }
 
-        if ($count > $maxDisplay) {
-            $remaining = $count - $maxDisplay;
-            $text .= "\n<i>... dan {$remaining} transaksi lainnya tercatat di web admin.</i>";
+        if (! empty($currentMessage)) {
+            $messages[] = $currentMessage;
         }
 
-        $this->sendMessage($chatId, $text);
-        $log->update(['ai_response' => $text]);
+        foreach ($messages as $msg) {
+            $this->sendMessage($chatId, $msg);
+        }
+
+        $log->update(['ai_response' => implode("\n\n---\n\n", $messages)]);
     }
 
     /**
