@@ -961,6 +961,13 @@ class TelegramBotService
                 }
                 $owner = User::latest('updated_at')->first() ?? User::first();
                 if ($owner) {
+                    $conflict = User::where('email', $newEmail)->where('id', '!=', $owner->id)->exists();
+                    if ($conflict) {
+                        $this->sendMessage($chatId, "⚠️ Email <code>{$newEmail}</code> sudah digunakan oleh akun lain. Pembaruan dibatalkan.");
+                        $this->sendConfigMainMenu($chatId);
+
+                        return;
+                    }
                     $owner->update(['email' => $newEmail]);
                 }
                 $this->sendMessage($chatId, "✅ <b>Email Login Admin Berhasil Diperbarui!</b>\nEmail baru: <code>{$newEmail}</code>.");

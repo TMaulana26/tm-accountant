@@ -77,24 +77,35 @@ class TmAccountantInstallCommand extends Command
         $gender = str_contains(strtolower($genderChoice), 'perempuan') ? 'perempuan' : 'laki-laki';
         $salutation = $gender === 'perempuan' ? 'Teteh' : 'Akang';
 
-        $existingAdmin = User::first();
-        if ($existingAdmin) {
-            $existingAdmin->update([
+        $existingByEmail = User::where('email', $adminEmail)->first();
+        if ($existingByEmail) {
+            $existingByEmail->update([
                 'name' => $adminName,
-                'email' => $adminEmail,
                 'password' => Hash::make($adminPassword),
             ]);
-            $user = $existingAdmin;
+            $user = $existingByEmail;
         } else {
-            $user = User::create([
-                'name' => $adminName,
-                'email' => $adminEmail,
-                'password' => Hash::make($adminPassword),
-            ]);
+            $existingAdmin = User::first();
+            if ($existingAdmin) {
+                $existingAdmin->update([
+                    'name' => $adminName,
+                    'email' => $adminEmail,
+                    'password' => Hash::make($adminPassword),
+                ]);
+                $user = $existingAdmin;
+            } else {
+                $user = User::create([
+                    'name' => $adminName,
+                    'email' => $adminEmail,
+                    'password' => Hash::make($adminPassword),
+                ]);
+            }
         }
 
         // Clean up duplicate legacy seed account if different email was entered
-        User::where('id', '!=', $user->id)->where('email', 'admin@example.com')->delete();
+        if ($adminEmail !== 'admin@example.com') {
+            User::where('id', '!=', $user->id)->where('email', 'admin@example.com')->delete();
+        }
 
         $envUpdates['APP_OWNER_NAME'] = '"'.$adminName.'"';
         $envUpdates['APP_OWNER_GENDER'] = $gender;
