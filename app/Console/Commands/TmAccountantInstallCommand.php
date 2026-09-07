@@ -68,15 +68,28 @@ class TmAccountantInstallCommand extends Command
             $adminPassword = 'password123';
         }
 
-        $user = User::updateOrCreate(
-            ['email' => $adminEmail],
-            [
+        $existingAdmin = User::first();
+        if ($existingAdmin) {
+            $existingAdmin->update([
                 'name' => $adminName,
+                'email' => $adminEmail,
                 'password' => Hash::make($adminPassword),
-            ]
-        );
+            ]);
+            $user = $existingAdmin;
+        } else {
+            $user = User::create([
+                'name' => $adminName,
+                'email' => $adminEmail,
+                'password' => Hash::make($adminPassword),
+            ]);
+        }
 
-        $this->info("✓ Admin account [{$user->name} ({$user->email})] is ready.");
+        // Clean up duplicate legacy seed account if different email was entered
+        User::where('id', '!=', $user->id)->where('email', 'admin@example.com')->delete();
+
+        $envUpdates['APP_OWNER_NAME'] = '"'.$adminName.'"';
+
+        $this->info("✓ Admin / Owner account [{$user->name} ({$user->email})] is ready.");
 
         // 3. Setup Telegram Bot Integration
         $this->line('');

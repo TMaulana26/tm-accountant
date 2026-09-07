@@ -7,6 +7,7 @@ use App\Enums\TelegramMessageStatus;
 use App\Models\Account;
 use App\Models\JournalEntry;
 use App\Models\TelegramMessage;
+use App\Models\User;
 use App\Services\Ai\AiServiceManager;
 use App\Services\Telegram\TelegramBotService;
 use Database\Seeders\AccountSeeder;
@@ -460,4 +461,25 @@ test('bot returns active AI model and provider info when /model command is recei
     expect($messageLog)->not->toBeNull()
         ->and($messageLog->intent)->toBe('query_ai_model')
         ->and($messageLog->ai_response)->toContain('minimax/minimax-m3:free');
+});
+
+test('system prompt dynamically incorporates updated owner name instead of default admin', function () {
+    $aiManager = app(AiServiceManager::class);
+
+    // 1. When APP_OWNER_NAME is set in env
+    putenv('APP_OWNER_NAME=Kang Tama');
+    expect($aiManager->getOwnerName())->toBe('Kang Tama')
+        ->and($aiManager->buildSystemPrompt())->toContain('Kang Tama');
+
+    putenv('APP_OWNER_NAME'); // Clear env
+
+    // 2. When a custom user is created in database
+    User::query()->delete();
+    User::factory()->create([
+        'name' => 'Tama Maulana',
+        'email' => 'tama@example.com',
+    ]);
+
+    expect($aiManager->getOwnerName())->toBe('Tama Maulana')
+        ->and($aiManager->buildSystemPrompt())->toContain('Tama Maulana');
 });

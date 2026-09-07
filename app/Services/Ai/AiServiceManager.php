@@ -114,6 +114,32 @@ class AiServiceManager
     }
 
     /**
+     * Get the dynamic name of the system owner/user.
+     */
+    public function getOwnerName(?string $fallback = null): string
+    {
+        if ($envName = env('APP_OWNER_NAME', env('OWNER_NAME'))) {
+            return trim($envName, '"\'');
+        }
+
+        // Check if there is a custom (non-default 'Admin') user
+        $owner = User::where('name', '!=', 'Admin')->latest('updated_at')->first()
+            ?? User::where('email', '!=', 'admin@example.com')->latest('updated_at')->first()
+            ?? User::latest('updated_at')->first()
+            ?? User::first();
+
+        if ($owner && ! empty($owner->name) && strtolower($owner->name) !== 'admin') {
+            return $owner->name;
+        }
+
+        if ($owner && ! empty($owner->name)) {
+            return $owner->name;
+        }
+
+        return $fallback ?: 'Owner';
+    }
+
+    /**
      * Build dynamic system prompt with current date, time, and active Chart of Accounts.
      */
     public function buildSystemPrompt(): string
@@ -121,8 +147,7 @@ class AiServiceManager
         $now = now()->setTimezone('Asia/Jakarta');
         $accounts = Account::where('is_active', true)->orderBy('code')->get();
 
-        $owner = User::first();
-        $ownerName = $owner?->name ?: 'Owner';
+        $ownerName = $this->getOwnerName();
 
         $cashAccounts = $accounts->where('category.value', 'cash_and_bank')->map(fn ($a) => "- [{$a->code}] {$a->name}")->implode("\n");
         $expenseAccounts = $accounts->where('type.value', 'expense')->map(fn ($a) => "- [{$a->code}] {$a->name}")->implode("\n");
