@@ -69,6 +69,14 @@ class TmAccountantInstallCommand extends Command
             $adminPassword = 'password123';
         }
 
+        $genderChoice = $this->choice(
+            'Jenis Kelamin Pemilik (untuk sapaan AI: Akang / Teteh)',
+            ['Laki-laki (Panggilan: Akang / Kang)', 'Perempuan (Panggilan: Teteh / Teh)'],
+            0
+        );
+        $gender = str_contains(strtolower($genderChoice), 'perempuan') ? 'perempuan' : 'laki-laki';
+        $salutation = $gender === 'perempuan' ? 'Teteh' : 'Akang';
+
         $existingAdmin = User::first();
         if ($existingAdmin) {
             $existingAdmin->update([
@@ -89,8 +97,9 @@ class TmAccountantInstallCommand extends Command
         User::where('id', '!=', $user->id)->where('email', 'admin@example.com')->delete();
 
         $envUpdates['APP_OWNER_NAME'] = '"'.$adminName.'"';
+        $envUpdates['APP_OWNER_GENDER'] = $gender;
 
-        $this->info("✓ Admin / Owner account [{$user->name} ({$user->email})] is ready.");
+        $this->info("✓ Admin / Owner account [{$user->name} ({$user->email})] is ready (Panggilan AI: {$salutation}).");
 
         // 3. Setup Telegram Bot Integration
         $this->line('');

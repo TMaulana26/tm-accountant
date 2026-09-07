@@ -301,3 +301,30 @@ test('direct /set command successfully updates allowed key when authenticated', 
             && str_contains($request['text'], 'Konfigurasi Berhasil Diperbarui');
     });
 });
+
+test('handles gender selection callback and updates APP_OWNER_GENDER to perempuan', function () {
+    $mockEnvService = mock(EnvironmentService::class);
+    $mockEnvService->shouldReceive('update')
+        ->once()
+        ->with(['APP_OWNER_GENDER' => 'perempuan'])
+        ->andReturn(true);
+
+    $this->app->instance(EnvironmentService::class, $mockEnvService);
+    $botService = app(TelegramBotService::class);
+
+    Cache::put('tg_auth_session_123456789', true, now()->addMinutes(15));
+
+    $botService->handleUpdate([
+        'callback_query' => [
+            'id' => 'cb_gender',
+            'from' => ['id' => 123456789, 'username' => 'tama'],
+            'message' => ['message_id' => 90, 'chat' => ['id' => 123456789]],
+            'data' => 'cfg_set_gender_female',
+        ],
+    ]);
+
+    Http::assertSent(function ($request) {
+        return str_contains($request->url(), 'answerCallbackQuery')
+            && str_contains($request['text'], 'Teteh');
+    });
+});

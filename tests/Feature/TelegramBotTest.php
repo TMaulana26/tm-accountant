@@ -483,3 +483,23 @@ test('system prompt dynamically incorporates updated owner name instead of defau
     expect($aiManager->getOwnerName())->toBe('Tama Maulana')
         ->and($aiManager->buildSystemPrompt())->toContain('Tama Maulana');
 });
+
+test('system prompt dynamically incorporates owner gender and salutation', function () {
+    $aiManager = app(AiServiceManager::class);
+
+    // Default or laki-laki -> Akang / Kang
+    putenv('APP_OWNER_GENDER=laki-laki');
+    expect($aiManager->getOwnerGender())->toBe('laki-laki')
+        ->and($aiManager->getOwnerSalutation())->toBe('Akang')
+        ->and($aiManager->getOwnerShortSalutation())->toBe('Kang')
+        ->and($aiManager->buildSystemPrompt())->toContain('Akang');
+
+    // Perempuan -> Teteh / Teh
+    putenv('APP_OWNER_GENDER=perempuan');
+    expect($aiManager->getOwnerGender())->toBe('perempuan')
+        ->and($aiManager->getOwnerSalutation())->toBe('Teteh')
+        ->and($aiManager->getOwnerShortSalutation())->toBe('Teh')
+        ->and($aiManager->buildSystemPrompt())->toContain('Teteh');
+
+    putenv('APP_OWNER_GENDER'); // Clear env
+});

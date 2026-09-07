@@ -1160,17 +1160,24 @@ class TelegramBotService
 
         $name = $owner?->name ?? 'Admin';
         $email = $owner?->email ?? '-';
+        $gender = $this->aiManager->getOwnerGender();
+        $salutation = $this->aiManager->getOwnerSalutation();
+        $genderLabel = $gender === 'perempuan' ? 'Perempuan (Teteh / Teh)' : 'Laki-laki (Akang / Kang)';
 
         $text = "👤 <b>[1/3] PENGATURAN AKUN ADMIN & PEMILIK</b>\n"
             ."━━━━━━━━━━━━━━━━━━━━\n\n"
             ."• <b>Nama Saat Ini:</b> {$name}\n"
-            ."• <b>Email Login:</b> <code>{$email}</code>\n\n"
+            ."• <b>Email Login:</b> <code>{$email}</code>\n"
+            ."• <b>Sapaan AI:</b> {$genderLabel} (<i>{$salutation}</i>)\n\n"
             .'Pilih data yang ingin Anda ubah:';
 
         $keyboard = [
             'inline_keyboard' => [
                 [
-                    ['text' => '📝 Ubah Nama Pemilik (Sapaan AI)', 'callback_data' => 'cfg_admin_name'],
+                    ['text' => '📝 Ubah Nama Pemilik', 'callback_data' => 'cfg_admin_name'],
+                ],
+                [
+                    ['text' => "⚧ Ubah Panggilan AI (Akang / Teteh) [{$salutation}]", 'callback_data' => 'cfg_admin_gender'],
                 ],
                 [
                     ['text' => '📧 Ubah Email Login Admin', 'callback_data' => 'cfg_admin_email'],
@@ -1180,6 +1187,43 @@ class TelegramBotService
                 ],
                 [
                     ['text' => '🔙 Kembali ke Menu Utama', 'callback_data' => 'cfg_menu_main'],
+                ],
+            ],
+        ];
+
+        if ($messageId) {
+            $this->editMessageText($chatId, $messageId, $text, $keyboard);
+        } else {
+            $this->sendMessage($chatId, $text, $keyboard);
+        }
+    }
+
+    /**
+     * Send Gender / Salutation selection menu (Akang / Teteh).
+     */
+    public function sendAdminGenderMenu(string $chatId, ?int $messageId = null): void
+    {
+        $currentGender = $this->aiManager->getOwnerGender();
+        $ownerName = $this->aiManager->getOwnerName();
+        $maleCheck = $currentGender === 'laki-laki' ? ' ✅' : '';
+        $femaleCheck = $currentGender === 'perempuan' ? ' ✅' : '';
+
+        $text = "⚧ <b>PILIH JENIS KELAMIN & PANGGILAN AI</b>\n"
+            ."━━━━━━━━━━━━━━━━━━━━\n\n"
+            ."Pilih jenis kelamin Anda agar asisten AI memanggil Anda dengan sebutan yang tepat (<b>Akang</b> atau <b>Teteh</b>):\n\n"
+            ."• <b>Laki-laki</b>: Dipanggil <i>Akang</i> / <i>Kang</i> (contoh: <i>Kang {$ownerName}</i>)\n"
+            ."• <b>Perempuan</b>: Dipanggil <i>Teteh</i> / <i>Teh</i> (contoh: <i>Teh {$ownerName}</i>)\n";
+
+        $keyboard = [
+            'inline_keyboard' => [
+                [
+                    ['text' => "👨 Laki-laki (Akang / Kang){$maleCheck}", 'callback_data' => 'cfg_set_gender_male'],
+                ],
+                [
+                    ['text' => "👩 Perempuan (Teteh / Teh){$femaleCheck}", 'callback_data' => 'cfg_set_gender_female'],
+                ],
+                [
+                    ['text' => '🔙 Kembali ke Menu Admin', 'callback_data' => 'cfg_menu_admin'],
                 ],
             ],
         ];
@@ -1358,13 +1402,15 @@ class TelegramBotService
     {
         $details = $this->aiManager->getActiveModelDetails();
         $owner = User::where('name', '!=', 'Admin')->latest('updated_at')->first() ?? User::first();
+        $salutation = $this->aiManager->getOwnerSalutation();
+        $genderLabel = $this->aiManager->getOwnerGender() === 'perempuan' ? 'Perempuan' : 'Laki-laki';
         $maskedKey = $this->environmentService->maskSecret(env('OPENROUTER_API_KEY', env('AI_API_KEY')));
         $maskedToken = $this->environmentService->maskSecret(config('telegram.bot_token'));
         $whitelisted = implode(', ', (array) config('telegram.allowed_user_ids', []));
 
         $text = "📋 <b>RINGKASAN KONFIGURASI SISTEM (.ENV)</b>\n"
             ."━━━━━━━━━━━━━━━━━━━━\n\n"
-            ."👤 <b>Pemilik/Admin:</b> {$owner?->name} (<code>{$owner?->email}</code>)\n"
+            ."👤 <b>Pemilik/Admin:</b> {$owner?->name} (<code>{$owner?->email}</code>) — Panggilan: <b>{$salutation}</b> ({$genderLabel})\n"
             ."🤖 <b>AI Provider:</b> {$details['provider_label']} (<code>{$details['provider']}</code>)\n"
             ."🧠 <b>AI Model:</b> <code>{$details['model']}</code>\n"
             ."🔑 <b>API Key:</b> <code>{$maskedKey}</code>\n"
@@ -1413,6 +1459,23 @@ class TelegramBotService
 
             case 'cfg_menu_admin':
                 $this->answerCallbackQuery($callbackId);
+                $this->sendAdminSetupMenu($chatId, $messageId);
+                break;
+
+            case 'cfg_admin_gender':
+                $this->answerCallbackQuery($callbackId);
+                $this->sendAdminGenderMenu($chatId, $messageId);
+                break;
+
+            case 'cfg_set_gender_male':
+                $this->environmentService->update(['APP_OWNER_GENDER' => 'laki-laki']);
+                $this->answerCallbackQuery($callbackId, '✓ Sapaan AI diubah ke: Akang');
+                $this->sendAdminSetupMenu($chatId, $messageId);
+                break;
+
+            case 'cfg_set_gender_female':
+                $this->environmentService->update(['APP_OWNER_GENDER' => 'perempuan']);
+                $this->answerCallbackQuery($callbackId, '✓ Sapaan AI diubah ke: Teteh');
                 $this->sendAdminSetupMenu($chatId, $messageId);
                 break;
 

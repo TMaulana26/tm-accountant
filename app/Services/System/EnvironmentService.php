@@ -15,6 +15,7 @@ class EnvironmentService
     protected const ALLOWED_KEYS = [
         'APP_NAME',
         'APP_OWNER_NAME',
+        'APP_OWNER_GENDER',
         'AI_PROVIDER',
         'AI_TIMEOUT',
         'AI_OCR_MODE',

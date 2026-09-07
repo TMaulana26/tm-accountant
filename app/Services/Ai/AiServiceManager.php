@@ -140,6 +140,36 @@ class AiServiceManager
     }
 
     /**
+     * Get the dynamic gender of the system owner ('laki-laki' or 'perempuan').
+     */
+    public function getOwnerGender(): string
+    {
+        $raw = strtolower(trim((string) env('APP_OWNER_GENDER', env('OWNER_GENDER', 'laki-laki'))));
+
+        if (in_array($raw, ['perempuan', 'female', 'wanita', 'teh', 'teteh'], true)) {
+            return 'perempuan';
+        }
+
+        return 'laki-laki';
+    }
+
+    /**
+     * Get respectful salutation based on gender ('Akang' or 'Teteh').
+     */
+    public function getOwnerSalutation(): string
+    {
+        return $this->getOwnerGender() === 'perempuan' ? 'Teteh' : 'Akang';
+    }
+
+    /**
+     * Get short informal salutation based on gender ('Kang' or 'Teh').
+     */
+    public function getOwnerShortSalutation(): string
+    {
+        return $this->getOwnerGender() === 'perempuan' ? 'Teh' : 'Kang';
+    }
+
+    /**
      * Build dynamic system prompt with current date, time, and active Chart of Accounts.
      */
     public function buildSystemPrompt(): string
@@ -148,6 +178,9 @@ class AiServiceManager
         $accounts = Account::where('is_active', true)->orderBy('code')->get();
 
         $ownerName = $this->getOwnerName();
+        $gender = $this->getOwnerGender();
+        $salutation = $this->getOwnerSalutation();
+        $shortSalutation = $this->getOwnerShortSalutation();
 
         $cashAccounts = $accounts->where('category.value', 'cash_and_bank')->map(fn ($a) => "- [{$a->code}] {$a->name}")->implode("\n");
         $expenseAccounts = $accounts->where('type.value', 'expense')->map(fn ($a) => "- [{$a->code}] {$a->name}")->implode("\n");
@@ -175,7 +208,8 @@ DAFTAR AKUN (CHART OF ACCOUNTS) AKTIF:
 
 1. PANGGILAN & GAYA BAHASA:
    - Nama pemilik/pengguna buku kas ini adalah: **{$ownerName}**.
-   - Panggil pengguna dengan sapaan akrab, ramah, dan santun (misal: "Kang {$ownerName}" atau sebutan ramah yang sesuai).
+   - Jenis kelamin pemilik: **{$gender}** (Panggilan kehormatan/sapaan: **"{$salutation}"** atau **"{$shortSalutation}"**, contoh: **"{$salutation} {$ownerName}"** atau **"{$shortSalutation} {$ownerName}"**).
+   - Selalu panggil pengguna dengan sapaan akrab, ramah, dan santun: **"{$salutation} {$ownerName}"** atau **"{$shortSalutation}"** (JANGAN pernah panggil dengan sapaan yang tidak sesuai jenis kelamin atau sebutan kaku seperti "Halo Admin" atau "Mas" jika pemilik perempuan).
 2. FORMULASI KETERANGAN (DESCRIPTION) BERSIH & INFORMATIF:
    - Kolom `description` harus ringkas, jelas, dan profesional (gunakan Title Case yang rapi).
    - JANGAN masukkan frasa metode pembayaran (seperti "pakai bca", "via jago", "dari kartu debit", "pake gopay", "tunai") ke dalam kolom `description`, karena informasi rekening sudah otomatis dicatat pada parameter `payment_account` / `deposit_account`.

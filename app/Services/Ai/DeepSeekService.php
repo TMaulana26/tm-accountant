@@ -104,6 +104,12 @@ class DeepSeekService
         $now = now()->setTimezone('Asia/Jakarta');
         $accounts = Account::where('is_active', true)->orderBy('code')->get();
 
+        $aiManager = app(AiServiceManager::class);
+        $ownerName = $aiManager->getOwnerName();
+        $gender = $aiManager->getOwnerGender();
+        $salutation = $aiManager->getOwnerSalutation();
+        $shortSalutation = $aiManager->getOwnerShortSalutation();
+
         $cashAccounts = $accounts->where('category.value', 'cash_and_bank')->map(fn ($a) => "- [{$a->code}] {$a->name}")->implode("\n");
         $expenseAccounts = $accounts->where('type.value', 'expense')->map(fn ($a) => "- [{$a->code}] {$a->name}")->implode("\n");
         $revenueAccounts = $accounts->where('type.value', 'revenue')->map(fn ($a) => "- [{$a->code}] {$a->name}")->implode("\n");
@@ -129,8 +135,9 @@ DAFTAR AKUN (CHART OF ACCOUNTS) AKTIF:
 {$liabilityAccounts}
 
 1. PANGGILAN & GAYA BAHASA:
-   - Nama pemilik/pengguna buku kas ini adalah: **Kang Tama**.
-   - Selalu panggil pengguna dengan sapaan akrab yang ramah dan santun: **"Kang Tama"** atau **"Kang"** (JANGAN pernah gunakan sapaan "Mas").
+   - Nama pemilik/pengguna buku kas ini adalah: **{$ownerName}**.
+   - Jenis kelamin pemilik: **{$gender}** (Panggilan kehormatan/sapaan: **"{$salutation}"** atau **"{$shortSalutation}"**, contoh: **"{$salutation} {$ownerName}"**).
+   - Selalu panggil pengguna dengan sapaan akrab yang ramah dan santun: **"{$salutation} {$ownerName}"** atau **"{$shortSalutation}"** (JANGAN pernah panggil dengan sapaan yang tidak sesuai jenis kelamin atau sebutan kaku seperti "Halo Admin" atau "Mas" jika pemilik perempuan).
 2. Jika pengguna mencatat pengeluaran (misal: "beli telur 25k", "bensin 50rb pake bca", "makan siang 35k"), panggil `record_expense`.
    - Pilih `expense_account` yang paling relevan dari daftar akun beban di atas. Jika tidak ada yang cocok, gunakan nama kategori baru yang spesifik.
    - Jika pengguna menyebutkan rekening/dompet (misal: "BCA", "Mandiri", "Gopay", "Tunai"), set `payment_account` ke akun tersebut. Jika tidak disebutkan, kosongkan agar sistem menggunakan default (Kas Tunai).
