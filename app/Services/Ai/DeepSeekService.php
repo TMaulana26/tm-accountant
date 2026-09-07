@@ -144,8 +144,10 @@ DAFTAR AKUN (CHART OF ACCOUNTS) AKTIF:
    - Tentukan `amount` dalam angka murni (misal: 25000).
 3. Jika pengguna mencatat pemasukan (misal: "gaji masuk 15jt ke bca", "dapat bonus 500k", "hasil jualan 2jt"), panggil `record_income`.
 4. Jika pengguna memindahkan uang antar rekening/dompet (misal: "transfer dari BCA ke Gopay 200k", "tarik tunai 500rb dari mandiri"), panggil `record_transfer`.
-5. Jika pengguna menanyakan kondisi keuangan (misal: "keuangan saya 1 minggu", "berapa pengeluaran bulan ini?", "ringkasan kas hari ini", "pengeluaran makan minggu lalu"), panggil `query_financial_summary`.
-6. BATASAN & KEAMANAN (GUARDRAILS):
+5. Jika pengguna menanyakan kondisi keuangan global (misal: "keuangan saya 1 minggu", "berapa pengeluaran bulan ini?", "ringkasan kas hari ini"), panggil `query_financial_summary`.
+6. Jika pengguna menanyakan riwayat/daftar transaksi spesifik, frekuensi transaksi ("berapa kali..."), rincian apa saja yang dibeli ("apa saja dan berapa..."), atau mutasi dompet/bank (misal: "saya donasi berapa kali dan habis berapa", "beli makan dan minum apa saja dari tanggal 1 sampai sekarang", "mutasi BCA minggu ini", "berapa kali beli bensin bulan ini"):
+   - WAJIB panggil `query_transactions`.
+7. BATASAN & KEAMANAN (GUARDRAILS):
    - Kamu adalah asisten khusus PENCATATAN KEUANGAN PRIBADI.
    - Jika pengguna mengirim pesan di luar topik keuangan (misalnya meminta resep makanan, coding/programming, dongeng/cerita, opini politik, gosip, atau pertanyaan non-keuangan lainnya), ATAU jika pesan berupa teks panjang yang tidak memuat transaksi keuangan, JANGAN panggil tool transaksi apapun.
    - Berikan respon ramah yang menegaskan bahwa Anda hanya melayani pencatatan keuangan (pemasukan, pengeluaran, transfer, dan laporan).
@@ -284,6 +286,48 @@ PROMPT;
                             ],
                         ],
                         'required' => ['period'],
+                    ],
+                ],
+            ],
+            [
+                'type' => 'function',
+                'function' => [
+                    'name' => 'query_transactions',
+                    'description' => 'Menanyakan riwayat atau rincian transaksi pengeluaran/pemasukan berdasarkan kategori beban, nama dompet/bank, kata kunci tertentu, atau rentang tanggal (misal: "saya donasi berapa kali dan habis berapa", "beli makan dan minum apa saja dari tanggal 1 sampai sekarang", "mutasi bca minggu ini", "berapa kali beli bensin bulan ini").',
+                    'parameters' => [
+                        'type' => 'object',
+                        'properties' => [
+                            'keyword' => [
+                                'type' => 'string',
+                                'description' => 'Kata kunci pencarian transaksi (contoh: donasi, bensin, kopi, makan).',
+                            ],
+                            'account_category' => [
+                                'type' => 'string',
+                                'description' => 'Kategori beban/pendapatan yang relevan (contoh: Makanan & Minuman (Harian), Donasi, Zakat & Sedekah).',
+                            ],
+                            'wallet_name' => [
+                                'type' => 'string',
+                                'description' => 'Nama dompet/rekening jika difilter spesifik (contoh: BCA, GoPay).',
+                            ],
+                            'period' => [
+                                'type' => 'string',
+                                'enum' => ['today', 'yesterday', 'this_week', 'last_week', 'this_month', 'last_month', 'this_year', 'custom'],
+                                'description' => 'Periode waktu (default: this_month).',
+                            ],
+                            'start_date' => [
+                                'type' => 'string',
+                                'description' => 'Tanggal awal format YYYY-MM-DD.',
+                            ],
+                            'end_date' => [
+                                'type' => 'string',
+                                'description' => 'Tanggal akhir format YYYY-MM-DD.',
+                            ],
+                            'transaction_type' => [
+                                'type' => 'string',
+                                'enum' => ['expense', 'income', 'transfer', 'all'],
+                                'description' => 'Jenis transaksi (expense, income, transfer, all).',
+                            ],
+                        ],
                     ],
                 ],
             ],

@@ -241,6 +241,10 @@ class TelegramBotService
                     $this->executeQueryAccountBalance($chatId, $params, $telegramLog);
                     break;
 
+                case 'query_transactions':
+                    $this->executeQueryTransactions($chatId, $params, $text, $telegramLog);
+                    break;
+
                 default:
                     $reply = $aiResult['reply_text'] ?? null;
                     if (! empty($reply)) {
@@ -773,6 +777,104 @@ class TelegramBotService
         // Fallback or general balance summary if not specific or not found
         $this->sendBalanceSummary($chatId);
         $log->update(['ai_response' => 'Summary of all cash and bank accounts sent']);
+    }
+
+    /**
+     * Handle Query Transactions (on-demand history, frequency count, and details).
+     */
+    protected function executeQueryTransactions(string $chatId, array $params, string $rawText, TelegramMessage $log): void
+    {
+        $result = $this->accountingService->queryTransactions($params);
+
+        $count = $result['total_count'];
+        $totalAmount = $result['total_amount'];
+        $periodLabel = $result['period_label'];
+        $transactions = $result['transactions'];
+        $walletAccount = $result['wallet_account'];
+        $walletBalance = $result['wallet_balance'];
+
+        // Determine title & emoji based on parameters
+        $keyword = strtolower(trim($params['keyword'] ?? ''));
+        $category = strtolower(trim($params['account_category'] ?? ''));
+        $walletName = trim($params['wallet_name'] ?? '');
+
+        $topic = 'TRANSAKSI';
+        $emoji = '📋';
+
+        if (str_contains($keyword, 'donasi') || str_contains($keyword, 'sedekah') || str_contains($keyword, 'zakat') || str_contains($category, 'donasi')) {
+            $topic = 'DONASI & SEDEKAH';
+            $emoji = '🤲';
+        } elseif (str_contains($keyword, 'makan') || str_contains($keyword, 'minum') || str_contains($keyword, 'kopi') || str_contains($category, 'makan') || str_contains($category, 'kafe')) {
+            $topic = 'MAKANAN & MINUMAN';
+            $emoji = '🍽️';
+        } elseif (str_contains($keyword, 'bensin') || str_contains($keyword, 'bbm') || str_contains($keyword, 'transport') || str_contains($category, 'transport')) {
+            $topic = 'TRANSPORTASI & BENSIN';
+            $emoji = '⛽';
+        } elseif (str_contains($keyword, 'pulsa') || str_contains($keyword, 'paket') || str_contains($keyword, 'data') || str_contains($category, 'pulsa')) {
+            $topic = 'PULSA & PAKET DATA';
+            $emoji = '📱';
+        } elseif (str_contains($keyword, 'belanja') || str_contains($keyword, 'groceries') || str_contains($category, 'dapur')) {
+            $topic = 'BELANJA KEBUTUHAN';
+            $emoji = '🛒';
+        } elseif (! empty($walletName)) {
+            $topic = 'MUTASI '.strtoupper($walletAccount?->name ?? $walletName);
+            $emoji = '💳';
+        } elseif (! empty($keyword)) {
+            $topic = 'PENCARIAN "'.strtoupper($keyword).'"';
+            $emoji = '🔍';
+        } elseif (! empty($category)) {
+            $topic = strtoupper($category);
+            $emoji = '📊';
+        }
+
+        if ($count === 0) {
+            $filterDesc = ! empty($keyword) ? "kata kunci <i>\"{$keyword}\"</i>" : (! empty($category) ? "kategori <i>\"{$category}\"</i>" : 'kriteria pencarian');
+            $text = "{$emoji} <b>DATA {$topic} TIDAK DITEMUKAN</b>\n"
+                ."🗓️ <i>Periode: {$periodLabel}</i>\n"
+                ."━━━━━━━━━━━━━━━━━━━━\n\n"
+                ."Belum ada catatan transaksi untuk {$filterDesc} pada periode ini.\n\n"
+                .'<i>💡 Tips: Anda dapat mencatat transaksi terlebih dahulu atau memeriksa kembali tanggal pencarian.</i>';
+
+            $this->sendMessage($chatId, $text);
+            $log->update(['ai_response' => $text]);
+
+            return;
+        }
+
+        $formattedTotal = 'Rp '.number_format($totalAmount, 0, ',', '.');
+        $avgPerTransaction = ($count > 0) ? 'Rp '.number_format($totalAmount / $count, 0, ',', '.') : 'Rp 0';
+
+        $text = "{$emoji} <b>RINGKASAN {$topic}</b>\n"
+            ."🗓️ <i>Periode: {$periodLabel}</i>\n"
+            ."━━━━━━━━━━━━━━━━━━━━\n\n"
+            ."📊 <b>Statistik:</b>\n"
+            ."• <b>Frekuensi:</b> {$count} kali transaksi\n"
+            ."• <b>Total Nominal:</b> <code>{$formattedTotal}</code>\n"
+            ."• <b>Rata-rata:</b> <code>{$avgPerTransaction}</code> / transaksi\n";
+
+        if ($walletBalance !== null && $walletAccount) {
+            $formattedBal = 'Rp '.number_format($walletBalance, 0, ',', '.');
+            $text .= "• <b>Sisa Saldo {$walletAccount->name}:</b> <code>{$formattedBal}</code>\n";
+        }
+
+        $text .= "\n📋 <b>Rincian Transaksi:</b>\n";
+
+        $maxDisplay = 25;
+        $itemsToDisplay = array_slice($transactions, 0, $maxDisplay);
+        foreach ($itemsToDisplay as $idx => $t) {
+            $num = $idx + 1;
+            $amt = 'Rp '.number_format($t['amount'], 0, ',', '.');
+            $walletInfo = ! empty($t['wallet_name']) ? " <i>({$t['wallet_name']})</i>" : '';
+            $text .= "{$num}. <b>{$t['date']}</b> — {$t['description']}: <code>{$amt}</code>{$walletInfo}\n";
+        }
+
+        if ($count > $maxDisplay) {
+            $remaining = $count - $maxDisplay;
+            $text .= "\n<i>... dan {$remaining} transaksi lainnya tercatat di web admin.</i>";
+        }
+
+        $this->sendMessage($chatId, $text);
+        $log->update(['ai_response' => $text]);
     }
 
     /**
@@ -1746,6 +1848,11 @@ Anda dapat mencatat transaksi keuangan secara instan hanya dengan mengirimkan pe
 • <i>/setup</i> (Wizard konfigurasi sistem .env)
 • <i>/set KEY NILAI</i> (Ubah konfigurasi .env langsung)
 
+📋 <b>Riwayat & Analisis Transaksi:</b>
+• <i>"saya donasi berapa kali bulan ini dan habis berapa?"</i>
+• <i>"beli makan dan minum dari tanggal 1 sampai sekarang apa saja?"</i>
+• <i>"cek mutasi bca minggu ini"</i>
+
 Setiap pencatatan transaksi otomatis dilengkapi tombol <b>Undo / Batal</b> jika ada kesalahan.
 HELP;
 
@@ -1765,6 +1872,7 @@ HELP;
             ."• <i>\"beli bensin 50rb pake bca\"</i> (Pengeluaran)\n"
             ."• <i>\"gaji masuk 15jt ke mandiri\"</i> (Pemasukan)\n"
             ."• <i>\"transfer bca ke gopay 100rb\"</i> (Transfer Saldo)\n"
+            ."• <i>\"saya donasi berapa kali bulan ini\"</i> (Riwayat & Frekuensi)\n"
             ."• <i>/saldo</i> (Cek Saldo Kas & Bank)\n"
             .'• <i>"keuangan saya 1 minggu"</i> (Laporan Ringkas)';
 

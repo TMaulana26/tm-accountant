@@ -633,4 +633,224 @@ class AccountingService
             'description' => 'Akun pendapatan dibuat otomatis dari pencatatan chatbot',
         ]);
     }
+
+    /**
+     * Query detailed transactions matching criteria with totals and formatting.
+     *
+     * @param  array{
+     *     keyword?: ?string,
+     *     account_category?: ?string,
+     *     wallet_name?: ?string,
+     *     period?: ?string,
+     *     start_date?: ?string,
+     *     end_date?: ?string,
+     *     transaction_type?: ?string,
+     *     limit?: ?int
+     * }  $filters
+     * @return array{
+     *     period_label: string,
+     *     start_date: string,
+     *     end_date: string,
+     *     total_count: int,
+     *     total_amount: float,
+     *     total_expense: float,
+     *     total_income: float,
+     *     transactions: array<int, array{
+     *         id: int,
+     *         entry_number: string,
+     *         date: string,
+     *         raw_date: Carbon,
+     *         description: string,
+     *         amount: float,
+     *         type: string,
+     *         wallet_name: string,
+     *         category_name: string
+     *     }>,
+     *     wallet_account: ?Account,
+     *     wallet_balance: ?float
+     * }
+     */
+    public function queryTransactions(array $filters): array
+    {
+        $now = now()->setTimezone('Asia/Jakarta');
+        $period = $filters['period'] ?? 'this_month';
+        $startDate = null;
+        $endDate = null;
+
+        if (! empty($filters['start_date']) && ! empty($filters['end_date'])) {
+            $startDate = Carbon::parse($filters['start_date'])->startOfDay();
+            $endDate = Carbon::parse($filters['end_date'])->endOfDay();
+            $periodLabel = $startDate->translatedFormat('d M Y').' s/d '.$endDate->translatedFormat('d M Y');
+        } elseif (! empty($filters['start_date'])) {
+            $startDate = Carbon::parse($filters['start_date'])->startOfDay();
+            $endDate = $now->copy()->endOfDay();
+            $periodLabel = $startDate->translatedFormat('d M Y').' s/d '.$endDate->translatedFormat('d M Y');
+        } else {
+            switch ($period) {
+                case 'today':
+                    $startDate = $now->copy()->startOfDay();
+                    $endDate = $now->copy()->endOfDay();
+                    $periodLabel = 'Hari Ini ('.$now->translatedFormat('d M Y').')';
+                    break;
+                case 'yesterday':
+                    $startDate = $now->copy()->subDay()->startOfDay();
+                    $endDate = $now->copy()->subDay()->endOfDay();
+                    $periodLabel = 'Kemarin ('.$startDate->translatedFormat('d M Y').')';
+                    break;
+                case 'this_week':
+                    $startDate = $now->copy()->startOfWeek();
+                    $endDate = $now->copy()->endOfWeek();
+                    $periodLabel = 'Minggu Ini ('.$startDate->translatedFormat('d M').' - '.$endDate->translatedFormat('d M Y').')';
+                    break;
+                case 'last_week':
+                    $startDate = $now->copy()->subWeek()->startOfWeek();
+                    $endDate = $now->copy()->subWeek()->endOfWeek();
+                    $periodLabel = 'Minggu Lalu ('.$startDate->translatedFormat('d M').' - '.$endDate->translatedFormat('d M Y').')';
+                    break;
+                case 'last_month':
+                    $startDate = $now->copy()->subMonth()->startOfMonth();
+                    $endDate = $now->copy()->subMonth()->endOfMonth();
+                    $periodLabel = 'Bulan Lalu ('.$startDate->translatedFormat('F Y').')';
+                    break;
+                case 'this_year':
+                    $startDate = $now->copy()->startOfYear();
+                    $endDate = $now->copy()->endOfYear();
+                    $periodLabel = 'Tahun Ini ('.$now->format('Y').')';
+                    break;
+                case 'this_month':
+                default:
+                    $startDate = $now->copy()->startOfMonth();
+                    $endDate = $now->copy()->endOfMonth();
+                    $periodLabel = 'Bulan Ini ('.$now->translatedFormat('F Y').')';
+                    break;
+            }
+        }
+
+        $query = JournalEntry::with(['items.account'])
+            ->whereBetween('date', [$startDate, $endDate])
+            ->orderBy('date', 'asc')
+            ->orderBy('id', 'asc');
+
+        // Filter by wallet (payment/deposit account)
+        $walletName = trim($filters['wallet_name'] ?? '');
+        $walletAccount = null;
+        if (! empty($walletName)) {
+            $walletAccount = $this->findPaymentAccount($walletName);
+            if ($walletAccount) {
+                $query->whereHas('items', function ($q) use ($walletAccount) {
+                    $q->where('account_id', $walletAccount->id);
+                });
+            }
+        }
+
+        // Filter by keyword in description or account name
+        $keyword = trim($filters['keyword'] ?? '');
+        if (! empty($keyword)) {
+            $query->where(function ($q) use ($keyword) {
+                $q->where('description', 'like', "%{$keyword}%")
+                    ->orWhereHas('items.account', function ($aq) use ($keyword) {
+                        $aq->where('name', 'like', "%{$keyword}%");
+                    });
+            });
+        }
+
+        // Filter by account category
+        $category = trim($filters['account_category'] ?? '');
+        if (! empty($category)) {
+            $query->where(function ($q) use ($category) {
+                $q->where('description', 'like', "%{$category}%")
+                    ->orWhereHas('items.account', function ($aq) use ($category) {
+                        $aq->where('name', 'like', "%{$category}%");
+                    });
+            });
+        }
+
+        // Filter by transaction type
+        $typeFilter = strtolower(trim($filters['transaction_type'] ?? 'all'));
+        if ($typeFilter === 'expense') {
+            $query->whereHas('items.account', function ($q) {
+                $q->whereIn('type', [AccountType::Expense, AccountType::Liability]);
+            });
+        } elseif ($typeFilter === 'income') {
+            $query->whereHas('items.account', function ($q) {
+                $q->where('type', AccountType::Revenue);
+            });
+        } elseif ($typeFilter === 'transfer') {
+            $query->whereDoesntHave('items.account', function ($q) {
+                $q->whereNotIn('category', [AccountCategory::CashAndBank]);
+            });
+        }
+
+        $entries = $query->get();
+
+        $processedTransactions = [];
+        $totalExpense = 0.0;
+        $totalIncome = 0.0;
+        $totalAmount = 0.0;
+
+        foreach ($entries as $entry) {
+            $expenseOrRevenueItem = $entry->items->first(function ($i) {
+                return in_array($i->account?->type, [AccountType::Expense, AccountType::Revenue, AccountType::Liability], true);
+            });
+
+            $cashItem = $entry->items->first(function ($i) {
+                return $i->account?->category === AccountCategory::CashAndBank;
+            });
+
+            if ($expenseOrRevenueItem) {
+                if ($expenseOrRevenueItem->account?->type === AccountType::Revenue) {
+                    $type = 'income';
+                    $amount = (float) $expenseOrRevenueItem->credit;
+                    $categoryName = $expenseOrRevenueItem->account->name;
+                    $wallet = $cashItem?->account?->name ?? 'Kas';
+                    $totalIncome += $amount;
+                    $totalAmount += $amount;
+                } else {
+                    $type = 'expense';
+                    $amount = (float) $expenseOrRevenueItem->debit;
+                    $categoryName = $expenseOrRevenueItem->account->name;
+                    $wallet = $cashItem?->account?->name ?? 'Kas';
+                    $totalExpense += $amount;
+                    $totalAmount += $amount;
+                }
+            } else {
+                // Transfer between Cash & Bank accounts
+                $fromItem = $entry->items->first(fn ($i) => $i->credit > 0 && $i->account?->category === AccountCategory::CashAndBank);
+                $toItem = $entry->items->first(fn ($i) => $i->debit > 0 && $i->account?->category === AccountCategory::CashAndBank);
+
+                $type = 'transfer';
+                $amount = (float) $entry->total_debit;
+                $categoryName = 'Transfer Saldo';
+                $fromName = $fromItem?->account?->name ?? 'Kas';
+                $toName = $toItem?->account?->name ?? 'Kas';
+                $wallet = "{$fromName} ➡️ {$toName}";
+                $totalAmount += $amount;
+            }
+
+            $processedTransactions[] = [
+                'id' => $entry->id,
+                'entry_number' => $entry->entry_number,
+                'date' => $entry->date->translatedFormat('d M Y'),
+                'raw_date' => $entry->date,
+                'description' => $entry->description,
+                'amount' => $amount,
+                'type' => $type,
+                'wallet_name' => $wallet,
+                'category_name' => $categoryName,
+            ];
+        }
+
+        return [
+            'period_label' => $periodLabel,
+            'start_date' => $startDate->toDateString(),
+            'end_date' => $endDate->toDateString(),
+            'total_count' => count($processedTransactions),
+            'total_amount' => $totalAmount,
+            'total_expense' => $totalExpense,
+            'total_income' => $totalIncome,
+            'transactions' => $processedTransactions,
+            'wallet_account' => $walletAccount,
+            'wallet_balance' => $walletAccount ? (float) $walletAccount->balance : null,
+        ];
+    }
 }
