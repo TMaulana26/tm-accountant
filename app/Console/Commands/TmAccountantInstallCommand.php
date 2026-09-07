@@ -22,7 +22,13 @@ class TmAccountantInstallCommand extends Command
     /**
      * The aliases of the console command.
      */
-    protected $aliases = ['tmaccountant:install'];
+    protected $aliases = [
+        'tm-accountant',
+        'tmaccountant:install',
+        'tm-accountant:install',
+        'tmaccountant:setup',
+        'tm-accountant:setup',
+    ];
 
     /**
      * The console command description.
