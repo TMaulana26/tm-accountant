@@ -9,12 +9,16 @@ use App\Enums\TelegramMessageStatus;
 use App\Models\Account;
 use App\Models\JournalEntry;
 use App\Models\TelegramMessage;
+use App\Models\User;
 use App\Services\Accounting\AccountingService;
 use App\Services\Accounting\FinancialReportService;
 use App\Services\Accounting\ReceiptImageService;
 use App\Services\Ai\AiServiceManager;
+use App\Services\System\EnvironmentService;
 use Carbon\Carbon;
 use Exception;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -29,9 +33,11 @@ class TelegramBotService
         protected FinancialReportService $financialReportService,
         protected AiServiceManager $aiManager,
         protected ReceiptImageService $receiptImageService,
+        protected ?EnvironmentService $environmentService = null,
     ) {
         $this->botToken = (string) config('telegram.bot_token', '');
         $this->allowedUserIds = (array) config('telegram.allowed_user_ids', []);
+        $this->environmentService = $environmentService ?? app(EnvironmentService::class);
     }
 
     /**
@@ -128,6 +134,36 @@ class TelegramBotService
                 'raw_text' => $text,
                 'status' => TelegramMessageStatus::Processed,
             ]);
+        }
+
+        // 0. Active Configuration Wizard State check
+        $setupState = Cache::get("tg_setup_state_{$chatId}");
+        if ($setupState) {
+            $this->handleSetupTextResponse($chatId, $text, $messageId, $setupState, $telegramLog);
+
+            return;
+        }
+
+        // Direct command: /set KEY VALUE
+        if (str_starts_with(strtolower($text), '/set ')) {
+            $this->handleDirectSetCommand($chatId, $text, $messageId, $telegramLog);
+
+            return;
+        }
+
+        // Command: /setup or /config or /env or /tmaccountant
+        if (in_array(strtolower($text), ['/setup', 'setup', '/config', 'config', '/env', 'env', '/setting', 'setting', '/tmaccountant', 'tmaccountant'])) {
+            $this->startSetupWizard($chatId, $telegramLog);
+
+            return;
+        }
+
+        // Command: /batal or batal
+        if (in_array(strtolower($text), ['/batal', 'batal', '/cancel', 'cancel'])) {
+            Cache::forget("tg_setup_state_{$chatId}");
+            $this->sendMessage($chatId, '✓ Sesi telah dibatalkan.');
+
+            return;
         }
 
         // Command: /start or /help
@@ -804,6 +840,683 @@ class TelegramBotService
 
             return;
         }
+
+        if (str_starts_with($data, 'cfg_')) {
+            $this->handleConfigCallbackQuery($id, $data, $chatId, $messageId);
+
+            return;
+        }
+    }
+
+    /**
+     * Start the setup / config wizard (requests password if not authenticated).
+     */
+    public function startSetupWizard(string $chatId, ?TelegramMessage $log = null): void
+    {
+        // 1. Check if chat is locked out due to failed attempts
+        if (Cache::has("tg_auth_lockout_{$chatId}")) {
+            $ttl = Cache::get("tg_auth_lockout_{$chatId}_until", 'beberapa menit');
+            $msg = "⛔ <b>Akses Konfigurasi Terkunci Sementara</b>\nTerlalu banyak percobaan password salah. Silakan tunggu hingga {$ttl} sebelum mencoba lagi.";
+            $this->sendMessage($chatId, $msg);
+            $log?->update(['intent' => 'auth_locked', 'ai_response' => $msg]);
+
+            return;
+        }
+
+        // 2. Check if chat already has an active authenticated session (15 mins)
+        if (Cache::has("tg_auth_session_{$chatId}")) {
+            $this->sendConfigMainMenu($chatId);
+            $log?->update(['intent' => 'open_config_menu', 'ai_response' => 'Config menu opened']);
+
+            return;
+        }
+
+        // 3. Prompt for password
+        Cache::put("tg_setup_state_{$chatId}", ['step' => 'awaiting_password', 'attempts' => 0], now()->addMinutes(5));
+
+        $text = "🔐 <b>VERIFIKASI KEAMANAN SISTEM</b>\n"
+            ."━━━━━━━━━━━━━━━━━━━━\n\n"
+            ."Untuk mengakses menu pengaturan sistem & file konfigurasi (<code>.env</code>) seperti <code>php artisan tmaccountant</code>, silakan masukkan <b>kata sandi (password)</b> akun Anda:\n\n"
+            ."<i>🔒 Demi keamanan, pesan teks password yang Anda kirim akan <b>otomatis segera dihapus</b> oleh sistem dari chat.</i>\n"
+            .'<i>💡 Ketik <code>/batal</code> jika ingin membatalkan.</i>';
+
+        $this->sendMessage($chatId, $text);
+        $log?->update(['intent' => 'auth_prompt_setup', 'ai_response' => $text]);
+    }
+
+    /**
+     * Handle incoming text during active setup state.
+     */
+    protected function handleSetupTextResponse(string $chatId, string $text, ?int $messageId, array $setupState, ?TelegramMessage $log = null): void
+    {
+        $step = $setupState['step'] ?? '';
+
+        if (in_array(strtolower($text), ['/batal', 'batal', '/cancel', 'cancel'])) {
+            Cache::forget("tg_setup_state_{$chatId}");
+            $this->sendMessage($chatId, '✓ Sesi konfigurasi telah dibatalkan.');
+
+            return;
+        }
+
+        switch ($step) {
+            case 'awaiting_password':
+                // IMMEDIATELY delete user message containing password!
+                if ($messageId) {
+                    $this->deleteMessage($chatId, $messageId);
+                }
+
+                $owner = User::where('name', '!=', 'Admin')->latest('updated_at')->first()
+                    ?? User::where('email', '!=', 'admin@example.com')->latest('updated_at')->first()
+                    ?? User::latest('updated_at')->first()
+                    ?? User::first();
+
+                if ($owner && Hash::check($text, $owner->password)) {
+                    Cache::forget("tg_setup_state_{$chatId}");
+                    Cache::forget("tg_auth_lockout_{$chatId}");
+                    Cache::put("tg_auth_session_{$chatId}", true, now()->addMinutes(15));
+
+                    $this->sendMessage($chatId, "🔓 <b>Password Terverifikasi!</b>\nSelamat datang, <b>{$owner->name}</b>. Sesi konfigurasi aktif selama 15 menit.");
+
+                    // If user had a pending direct set action
+                    if (($setupState['pending_action'] ?? null) === 'direct_set') {
+                        $this->handleDirectSetCommand($chatId, $setupState['pending_payload'] ?? '', null, $log);
+                    } else {
+                        $this->sendConfigMainMenu($chatId);
+                    }
+                } else {
+                    $attempts = ($setupState['attempts'] ?? 0) + 1;
+                    if ($attempts >= 3) {
+                        Cache::forget("tg_setup_state_{$chatId}");
+                        Cache::put("tg_auth_lockout_{$chatId}", true, now()->addMinutes(5));
+                        Cache::put("tg_auth_lockout_{$chatId}_until", now()->addMinutes(5)->setTimezone('Asia/Jakarta')->translatedFormat('H:i').' WIB', now()->addMinutes(5));
+                        $this->sendMessage($chatId, '⛔ <b>Password Salah 3 Kali!</b>\nAkses pengaturan dikunci sementara selama 5 menit demi keamanan sistem.');
+                    } else {
+                        Cache::put("tg_setup_state_{$chatId}", ['step' => 'awaiting_password', 'attempts' => $attempts], now()->addMinutes(5));
+                        $sisa = 3 - $attempts;
+                        $this->sendMessage($chatId, "❌ <b>Password Salah!</b>\nSisa kesempatan: {$sisa} kali lagi.\nSilakan ketik ulang password atau ketik <code>/batal</code>:");
+                    }
+                }
+                break;
+
+            case 'awaiting_admin_name':
+                Cache::forget("tg_setup_state_{$chatId}");
+                $newName = trim($text);
+                $owner = User::latest('updated_at')->first() ?? User::first();
+                if ($owner) {
+                    $owner->update(['name' => $newName]);
+                }
+                $this->environmentService->update(['APP_OWNER_NAME' => $newName]);
+                $this->sendMessage($chatId, "✅ <b>Nama Pemilik Berhasil Diperbarui!</b>\nNama panggilan AI sekarang: <b>{$newName}</b>.");
+                $this->sendConfigMainMenu($chatId);
+                break;
+
+            case 'awaiting_admin_email':
+                Cache::forget("tg_setup_state_{$chatId}");
+                $newEmail = trim($text);
+                if (! filter_var($newEmail, FILTER_VALIDATE_EMAIL)) {
+                    $this->sendMessage($chatId, '⚠️ Format email tidak valid. Pembaruan dibatalkan.');
+                    $this->sendConfigMainMenu($chatId);
+
+                    return;
+                }
+                $owner = User::latest('updated_at')->first() ?? User::first();
+                if ($owner) {
+                    $owner->update(['email' => $newEmail]);
+                }
+                $this->sendMessage($chatId, "✅ <b>Email Login Admin Berhasil Diperbarui!</b>\nEmail baru: <code>{$newEmail}</code>.");
+                $this->sendConfigMainMenu($chatId);
+                break;
+
+            case 'awaiting_admin_password':
+                if ($messageId) {
+                    $this->deleteMessage($chatId, $messageId);
+                }
+                Cache::forget("tg_setup_state_{$chatId}");
+                if (strlen($text) < 8) {
+                    $this->sendMessage($chatId, '⚠️ Password baru minimal 8 karakter. Pembaruan dibatalkan.');
+                    $this->sendConfigMainMenu($chatId);
+
+                    return;
+                }
+                $owner = User::latest('updated_at')->first() ?? User::first();
+                if ($owner) {
+                    $owner->update(['password' => Hash::make($text)]);
+                }
+                $this->sendMessage($chatId, "✅ <b>Password Baru Berhasil Disimpan!</b>\nSilakan gunakan password baru ini untuk login web maupun verifikasi bot.");
+                $this->sendConfigMainMenu($chatId);
+                break;
+
+            case 'awaiting_tg_token':
+                if ($messageId) {
+                    $this->deleteMessage($chatId, $messageId);
+                }
+                Cache::forget("tg_setup_state_{$chatId}");
+                $token = trim($text);
+                $this->environmentService->update(['TELEGRAM_BOT_TOKEN' => $token]);
+                $this->sendMessage($chatId, "✅ <b>Telegram Bot Token Berhasil Diperbarui!</b>\nToken baru telah disimpan di file <code>.env</code>.");
+                $this->sendConfigMainMenu($chatId);
+                break;
+
+            case 'awaiting_tg_userids':
+                Cache::forget("tg_setup_state_{$chatId}");
+                $userIds = trim($text);
+                $this->environmentService->update(['TELEGRAM_ALLOWED_USER_IDS' => $userIds]);
+                $this->sendMessage($chatId, "✅ <b>Whitelisted Telegram User ID Berhasil Diperbarui!</b>\nID: <code>{$userIds}</code>.");
+                $this->sendConfigMainMenu($chatId);
+                break;
+
+            case 'awaiting_ai_model':
+                Cache::forget("tg_setup_state_{$chatId}");
+                $modelName = trim($text);
+                $provider = config('ai.default', 'openrouter');
+                $key = match ($provider) {
+                    'openrouter' => 'OPENROUTER_MODEL',
+                    'deepseek' => 'DEEPSEEK_MODEL',
+                    'gemini' => 'GEMINI_MODEL',
+                    'openai' => 'OPENAI_MODEL',
+                    'groq' => 'GROQ_MODEL',
+                    'ollama' => 'OLLAMA_MODEL',
+                    default => 'CUSTOM_AI_MODEL',
+                };
+                $this->environmentService->update([
+                    $key => $modelName,
+                    'AI_MODEL' => $modelName,
+                ]);
+                $this->sendMessage($chatId, "✅ <b>Model AI Berhasil Diperbarui!</b>\nModel aktif sekarang: <code>{$modelName}</code> (pada provider: <b>{$provider}</b>).");
+                $this->sendConfigMainMenu($chatId);
+                break;
+
+            case 'awaiting_ai_apikey':
+                if ($messageId) {
+                    $this->deleteMessage($chatId, $messageId);
+                }
+                Cache::forget("tg_setup_state_{$chatId}");
+                $apiKey = trim($text);
+                $provider = config('ai.default', 'openrouter');
+                $key = match ($provider) {
+                    'openrouter' => 'OPENROUTER_API_KEY',
+                    'deepseek' => 'DEEPSEEK_API_KEY',
+                    'gemini' => 'GEMINI_API_KEY',
+                    'openai' => 'OPENAI_API_KEY',
+                    'groq' => 'GROQ_API_KEY',
+                    default => 'CUSTOM_AI_API_KEY',
+                };
+                $this->environmentService->update([
+                    $key => $apiKey,
+                    'AI_API_KEY' => $apiKey,
+                ]);
+                $this->sendMessage($chatId, "✅ <b>API Key AI Berhasil Disimpan!</b>\nAPI Key untuk provider <b>{$provider}</b> telah diperbarui di <code>.env</code>.");
+                $this->sendConfigMainMenu($chatId);
+                break;
+
+            default:
+                Cache::forget("tg_setup_state_{$chatId}");
+                $this->sendConfigMainMenu($chatId);
+                break;
+        }
+    }
+
+    /**
+     * Handle direct /set KEY VALUE command.
+     */
+    protected function handleDirectSetCommand(string $chatId, string $text, ?int $messageId, ?TelegramMessage $log = null): void
+    {
+        // 1. Check authentication
+        if (! Cache::has("tg_auth_session_{$chatId}")) {
+            Cache::put("tg_setup_state_{$chatId}", [
+                'step' => 'awaiting_password',
+                'pending_action' => 'direct_set',
+                'pending_payload' => $text,
+                'attempts' => 0,
+            ], now()->addMinutes(5));
+
+            $msg = "🔐 <b>VERIFIKASI KEAMANAN</b>\n━━━━━━━━━━━━━━━━━━━━\n\n"
+                ."Perubahan konfigurasi via command <code>/set</code> membutuhkan otentikasi kata sandi.\n\n"
+                ."Silakan masukkan <b>kata sandi akun Anda</b>:\n"
+                .'<i>🔒 Pesan password akan otomatis segera dihapus dari chat.</i>';
+            $this->sendMessage($chatId, $msg);
+            $log?->update(['intent' => 'auth_prompt_direct_set', 'ai_response' => $msg]);
+
+            return;
+        }
+
+        // 2. Parse command
+        if (! preg_match('/^\/set\s+([A-Za-z0-9_]+)\s+(.+)$/s', $text, $matches)) {
+            $this->sendMessage($chatId, "⚠️ Format salah. Gunakan format:\n<code>/set KEY NILAI</code>\n\nContoh:\n<code>/set OPENROUTER_MODEL minimax/minimax-m3:free</code>");
+
+            return;
+        }
+
+        $key = strtoupper(trim($matches[1]));
+        $val = trim($matches[2]);
+
+        if (! $this->environmentService->isKeyAllowed($key)) {
+            $this->sendMessage($chatId, "⛔ Variabel <code>{$key}</code> tidak diizinkan untuk diubah via chat Telegram.");
+
+            return;
+        }
+
+        $success = $this->environmentService->update([$key => $val]);
+
+        if ($success) {
+            $reply = "✅ <b>Konfigurasi Berhasil Diperbarui!</b>\n━━━━━━━━━━━━━━━━━━━━\n\n"
+                ."🔑 <b>Variabel:</b> <code>{$key}</code>\n"
+                ."📝 <b>Nilai Baru:</b> <code>{$val}</code>\n\n"
+                .'<i>File .env dan cache konfigurasi aplikasi telah diperbarui.</i>';
+        } else {
+            $reply = '❌ Gagal menulis perubahan ke file .env. Pastikan permission file sesuai.';
+        }
+
+        $this->sendMessage($chatId, $reply);
+        $log?->update(['intent' => 'direct_set_env', 'ai_response' => $reply]);
+    }
+
+    /**
+     * Send Main Setup / Config menu.
+     */
+    public function sendConfigMainMenu(string $chatId, ?int $messageId = null): void
+    {
+        $text = "⚙️ <b>MENU PENGATURAN SISTEM (.ENV)</b>\n"
+            ."━━━━━━━━━━━━━━━━━━━━\n\n"
+            ."Selamat datang di wizard konfigurasi interaktif TM Accountant.\n"
+            ."Langkah pengaturan ini sama persis dengan wizard <code>php artisan tmaccountant</code> di terminal.\n\n"
+            .'Silakan pilih menu pengaturan di bawah ini:';
+
+        $keyboard = [
+            'inline_keyboard' => [
+                [
+                    ['text' => '👤 [1] Setup Akun Admin & Pemilik', 'callback_data' => 'cfg_menu_admin'],
+                ],
+                [
+                    ['text' => '📱 [2] Setup Integrasi Bot Telegram', 'callback_data' => 'cfg_menu_telegram'],
+                ],
+                [
+                    ['text' => '🤖 [3] Setup AI Provider & Vision OCR', 'callback_data' => 'cfg_menu_ai'],
+                ],
+                [
+                    ['text' => '📋 [4] Lihat Ringkasan .env Aktif', 'callback_data' => 'cfg_menu_summary'],
+                ],
+                [
+                    ['text' => '🚪 Selesai & Kunci Sesi', 'callback_data' => 'cfg_menu_exit'],
+                ],
+            ],
+        ];
+
+        if ($messageId) {
+            $this->editMessageText($chatId, $messageId, $text, $keyboard);
+        } else {
+            $this->sendMessage($chatId, $text, $keyboard);
+        }
+    }
+
+    /**
+     * Send Admin Account Setup submenu (Step 1).
+     */
+    public function sendAdminSetupMenu(string $chatId, ?int $messageId = null): void
+    {
+        $owner = User::where('name', '!=', 'Admin')->latest('updated_at')->first()
+            ?? User::latest('updated_at')->first()
+            ?? User::first();
+
+        $name = $owner?->name ?? 'Admin';
+        $email = $owner?->email ?? '-';
+
+        $text = "👤 <b>[1/3] PENGATURAN AKUN ADMIN & PEMILIK</b>\n"
+            ."━━━━━━━━━━━━━━━━━━━━\n\n"
+            ."• <b>Nama Saat Ini:</b> {$name}\n"
+            ."• <b>Email Login:</b> <code>{$email}</code>\n\n"
+            .'Pilih data yang ingin Anda ubah:';
+
+        $keyboard = [
+            'inline_keyboard' => [
+                [
+                    ['text' => '📝 Ubah Nama Pemilik (Sapaan AI)', 'callback_data' => 'cfg_admin_name'],
+                ],
+                [
+                    ['text' => '📧 Ubah Email Login Admin', 'callback_data' => 'cfg_admin_email'],
+                ],
+                [
+                    ['text' => '🔑 Ubah Password Admin', 'callback_data' => 'cfg_admin_password'],
+                ],
+                [
+                    ['text' => '🔙 Kembali ke Menu Utama', 'callback_data' => 'cfg_menu_main'],
+                ],
+            ],
+        ];
+
+        if ($messageId) {
+            $this->editMessageText($chatId, $messageId, $text, $keyboard);
+        } else {
+            $this->sendMessage($chatId, $text, $keyboard);
+        }
+    }
+
+    /**
+     * Send Telegram Bot Integration submenu (Step 2).
+     */
+    public function sendTelegramSetupMenu(string $chatId, ?int $messageId = null): void
+    {
+        $currentIds = implode(', ', (array) config('telegram.allowed_user_ids', []));
+        $maskedToken = $this->environmentService->maskSecret(config('telegram.bot_token'));
+
+        $text = "📱 <b>[2/3] INTEGRASI BOT TELEGRAM</b>\n"
+            ."━━━━━━━━━━━━━━━━━━━━\n\n"
+            ."• <b>Bot Token:</b> <code>{$maskedToken}</code>\n"
+            ."• <b>Whitelisted User IDs:</b> <code>{$currentIds}</code>\n\n"
+            .'Pilih opsi konfigurasi bot:';
+
+        $keyboard = [
+            'inline_keyboard' => [
+                [
+                    ['text' => '👥 Ubah Whitelisted User ID(s)', 'callback_data' => 'cfg_tg_userids'],
+                ],
+                [
+                    ['text' => '🔑 Ubah Bot Token', 'callback_data' => 'cfg_tg_token'],
+                ],
+                [
+                    ['text' => '🔙 Kembali ke Menu Utama', 'callback_data' => 'cfg_menu_main'],
+                ],
+            ],
+        ];
+
+        if ($messageId) {
+            $this->editMessageText($chatId, $messageId, $text, $keyboard);
+        } else {
+            $this->sendMessage($chatId, $text, $keyboard);
+        }
+    }
+
+    /**
+     * Send AI Provider & Vision OCR submenu (Step 3).
+     */
+    public function sendAiSetupMenu(string $chatId, ?int $messageId = null): void
+    {
+        $details = $this->aiManager->getActiveModelDetails();
+
+        $text = "🤖 <b>[3/3] AI PROVIDER & VISION OCR SETUP</b>\n"
+            ."━━━━━━━━━━━━━━━━━━━━\n\n"
+            ."• <b>Provider Aktif:</b> {$details['provider_label']} (<code>{$details['provider']}</code>)\n"
+            ."• <b>Model Aktif:</b> <code>{$details['model']}</code>\n"
+            ."• <b>Vision OCR Struk:</b> {$details['ocr_label']}\n\n"
+            .'Pilih bagian yang ingin Anda konfigurasikan:';
+
+        $keyboard = [
+            'inline_keyboard' => [
+                [
+                    ['text' => '1️⃣ Pilih AI Engine Provider', 'callback_data' => 'cfg_ai_provider_list'],
+                ],
+                [
+                    ['text' => '2️⃣ Ganti Model AI Aktif', 'callback_data' => 'cfg_ai_model_input'],
+                ],
+                [
+                    ['text' => '3️⃣ Masukkan API Key Provider', 'callback_data' => 'cfg_ai_apikey_input'],
+                ],
+                [
+                    ['text' => '4️⃣ Pilih Strategi Vision OCR Struk', 'callback_data' => 'cfg_ai_ocr_list'],
+                ],
+                [
+                    ['text' => '🔙 Kembali ke Menu Utama', 'callback_data' => 'cfg_menu_main'],
+                ],
+            ],
+        ];
+
+        if ($messageId) {
+            $this->editMessageText($chatId, $messageId, $text, $keyboard);
+        } else {
+            $this->sendMessage($chatId, $text, $keyboard);
+        }
+    }
+
+    /**
+     * Send AI Provider Selection menu.
+     */
+    public function sendAiProviderListMenu(string $chatId, ?int $messageId = null): void
+    {
+        $activeProvider = config('ai.default', 'openrouter');
+
+        $text = "🧠 <b>PILIH AI ENGINE PROVIDER</b>\n"
+            ."━━━━━━━━━━━━━━━━━━━━\n\n"
+            .'Provider yang saat ini aktif: <b>'.strtoupper($activeProvider)."</b>\n\n"
+            .'Pilih salah satu provider AI di bawah ini:';
+
+        $keyboard = [
+            'inline_keyboard' => [
+                [
+                    ['text' => ($activeProvider === 'openrouter' ? '✅ ' : '').'OpenRouter (Multi-Model / Minimax / Claude)', 'callback_data' => 'cfg_set_prov_openrouter'],
+                ],
+                [
+                    ['text' => ($activeProvider === 'deepseek' ? '✅ ' : '').'DeepSeek (DeepSeek Chat Cloud)', 'callback_data' => 'cfg_set_prov_deepseek'],
+                ],
+                [
+                    ['text' => ($activeProvider === 'gemini' ? '✅ ' : '').'Google Gemini (Native 3.7 Flash)', 'callback_data' => 'cfg_set_prov_gemini'],
+                ],
+                [
+                    ['text' => ($activeProvider === 'openai' ? '✅ ' : '').'OpenAI (GPT-4o Mini)', 'callback_data' => 'cfg_set_prov_openai'],
+                ],
+                [
+                    ['text' => ($activeProvider === 'groq' ? '✅ ' : '').'Groq Cloud (Fast LPU / Llama 3.3)', 'callback_data' => 'cfg_set_prov_groq'],
+                ],
+                [
+                    ['text' => ($activeProvider === 'ollama' ? '✅ ' : '').'Ollama (Offline Local LLM)', 'callback_data' => 'cfg_set_prov_ollama'],
+                ],
+                [
+                    ['text' => ($activeProvider === 'custom' ? '✅ ' : '').'Custom (OpenAI-compatible URL & Key)', 'callback_data' => 'cfg_set_prov_custom'],
+                ],
+                [
+                    ['text' => '🔙 Kembali', 'callback_data' => 'cfg_menu_ai'],
+                ],
+            ],
+        ];
+
+        if ($messageId) {
+            $this->editMessageText($chatId, $messageId, $text, $keyboard);
+        } else {
+            $this->sendMessage($chatId, $text, $keyboard);
+        }
+    }
+
+    /**
+     * Send Vision OCR Strategy menu.
+     */
+    public function sendAiOcrListMenu(string $chatId, ?int $messageId = null): void
+    {
+        $currentOcr = config('ai.ocr_mode', 'gemini');
+
+        $text = "👁️ <b>PILIH STRATEGI VISION OCR STRUK</b>\n"
+            ."━━━━━━━━━━━━━━━━━━━━\n\n"
+            .'Strategi saat ini: <b>'.strtoupper($currentOcr)."</b>\n\n"
+            .'Pilih strategi pembacaan foto struk/nota belanja:';
+
+        $keyboard = [
+            'inline_keyboard' => [
+                [
+                    ['text' => ($currentOcr === 'gemini' ? '✅ ' : '').'🌟 Gemini Free Tier (Rekomendasi Hemat & Akurat)', 'callback_data' => 'cfg_set_ocr_gemini'],
+                ],
+                [
+                    ['text' => ($currentOcr === 'auto' ? '✅ ' : '').'🔄 Gunakan Model Utama (Multimodal Vision)', 'callback_data' => 'cfg_set_ocr_auto'],
+                ],
+                [
+                    ['text' => ($currentOcr === 'disabled' ? '✅ ' : '').'🚫 Nonaktifkan Pembacaan Struk (Teks Saja)', 'callback_data' => 'cfg_set_ocr_disabled'],
+                ],
+                [
+                    ['text' => '🔙 Kembali', 'callback_data' => 'cfg_menu_ai'],
+                ],
+            ],
+        ];
+
+        if ($messageId) {
+            $this->editMessageText($chatId, $messageId, $text, $keyboard);
+        } else {
+            $this->sendMessage($chatId, $text, $keyboard);
+        }
+    }
+
+    /**
+     * Send Configuration Summary menu (.env review).
+     */
+    public function sendConfigSummaryMenu(string $chatId, ?int $messageId = null): void
+    {
+        $details = $this->aiManager->getActiveModelDetails();
+        $owner = User::where('name', '!=', 'Admin')->latest('updated_at')->first() ?? User::first();
+        $maskedKey = $this->environmentService->maskSecret(env('OPENROUTER_API_KEY', env('AI_API_KEY')));
+        $maskedToken = $this->environmentService->maskSecret(config('telegram.bot_token'));
+        $whitelisted = implode(', ', (array) config('telegram.allowed_user_ids', []));
+
+        $text = "📋 <b>RINGKASAN KONFIGURASI SISTEM (.ENV)</b>\n"
+            ."━━━━━━━━━━━━━━━━━━━━\n\n"
+            ."👤 <b>Pemilik/Admin:</b> {$owner?->name} (<code>{$owner?->email}</code>)\n"
+            ."🤖 <b>AI Provider:</b> {$details['provider_label']} (<code>{$details['provider']}</code>)\n"
+            ."🧠 <b>AI Model:</b> <code>{$details['model']}</code>\n"
+            ."🔑 <b>API Key:</b> <code>{$maskedKey}</code>\n"
+            ."👁️ <b>Vision OCR:</b> {$details['ocr_label']}\n"
+            ."📱 <b>Bot Token:</b> <code>{$maskedToken}</code>\n"
+            ."👥 <b>Whitelisted IDs:</b> <code>{$whitelisted}</code>\n\n"
+            .'<i>💡 Seluruh konfigurasi di atas tersimpan di file <code>.env</code> server.</i>';
+
+        $keyboard = [
+            'inline_keyboard' => [
+                [
+                    ['text' => '🔄 Muat Ulang', 'callback_data' => 'cfg_menu_summary'],
+                    ['text' => '🔙 Menu Utama', 'callback_data' => 'cfg_menu_main'],
+                ],
+            ],
+        ];
+
+        if ($messageId) {
+            $this->editMessageText($chatId, $messageId, $text, $keyboard);
+        } else {
+            $this->sendMessage($chatId, $text, $keyboard);
+        }
+    }
+
+    /**
+     * Handle configuration callback queries.
+     */
+    protected function handleConfigCallbackQuery(string $callbackId, string $data, string $chatId, ?int $messageId): void
+    {
+        // Require active authentication
+        if (! Cache::has("tg_auth_session_{$chatId}")) {
+            $this->answerCallbackQuery($callbackId, 'Sesi telah kedaluwarsa. Silakan ketik /setup kembali.');
+            $this->startSetupWizard($chatId);
+
+            return;
+        }
+
+        // Refresh 15 min expiration on activity
+        Cache::put("tg_auth_session_{$chatId}", true, now()->addMinutes(15));
+
+        switch ($data) {
+            case 'cfg_menu_main':
+                $this->answerCallbackQuery($callbackId);
+                $this->sendConfigMainMenu($chatId, $messageId);
+                break;
+
+            case 'cfg_menu_admin':
+                $this->answerCallbackQuery($callbackId);
+                $this->sendAdminSetupMenu($chatId, $messageId);
+                break;
+
+            case 'cfg_admin_name':
+                $this->answerCallbackQuery($callbackId);
+                Cache::put("tg_setup_state_{$chatId}", ['step' => 'awaiting_admin_name'], now()->addMinutes(5));
+                $this->sendMessage($chatId, "👤 <b>UBAH NAMA PEMILIK / SAPAAN AI</b>\n\nSilakan ketik nama panggilan Anda yang baru (misal: <code>Kang Tama</code>):\n\n<i>Ketik /batal untuk membatalkan.</i>");
+                break;
+
+            case 'cfg_admin_email':
+                $this->answerCallbackQuery($callbackId);
+                Cache::put("tg_setup_state_{$chatId}", ['step' => 'awaiting_admin_email'], now()->addMinutes(5));
+                $this->sendMessage($chatId, "📧 <b>UBAH EMAIL LOGIN ADMIN</b>\n\nSilakan ketik alamat email baru Anda untuk login di panel web:\n\n<i>Ketik /batal untuk membatalkan.</i>");
+                break;
+
+            case 'cfg_admin_password':
+                $this->answerCallbackQuery($callbackId);
+                Cache::put("tg_setup_state_{$chatId}", ['step' => 'awaiting_admin_password'], now()->addMinutes(5));
+                $this->sendMessage($chatId, "🔑 <b>UBAH KATA SANDI (PASSWORD) ADMIN</b>\n\nSilakan ketik kata sandi baru (minimal 8 karakter):\n<i>🔒 Pesan akan otomatis segera dihapus dari chat demi keamanan.</i>\n\n<i>Ketik /batal untuk membatalkan.</i>");
+                break;
+
+            case 'cfg_menu_telegram':
+                $this->answerCallbackQuery($callbackId);
+                $this->sendTelegramSetupMenu($chatId, $messageId);
+                break;
+
+            case 'cfg_tg_token':
+                $this->answerCallbackQuery($callbackId);
+                Cache::put("tg_setup_state_{$chatId}", ['step' => 'awaiting_tg_token'], now()->addMinutes(5));
+                $this->sendMessage($chatId, "🔑 <b>UBAH TELEGRAM BOT TOKEN</b>\n\nSilakan ketik token bot baru yang Anda dapatkan dari @BotFather:\n<i>🔒 Pesan akan otomatis segera dihapus dari chat demi keamanan.</i>\n\n<i>Ketik /batal untuk membatalkan.</i>");
+                break;
+
+            case 'cfg_tg_userids':
+                $this->answerCallbackQuery($callbackId);
+                Cache::put("tg_setup_state_{$chatId}", ['step' => 'awaiting_tg_userids'], now()->addMinutes(5));
+                $this->sendMessage($chatId, "👥 <b>UBAH WHITELISTED USER ID(S)</b>\n\nSilakan ketik User ID Telegram yang diizinkan (dari @userinfobot). Pisahkan dengan tanda koma jika lebih dari satu (misal: <code>123456789, 987654321</code>):\n\n<i>Ketik /batal untuk membatalkan.</i>");
+                break;
+
+            case 'cfg_menu_ai':
+                $this->answerCallbackQuery($callbackId);
+                $this->sendAiSetupMenu($chatId, $messageId);
+                break;
+
+            case 'cfg_ai_provider_list':
+                $this->answerCallbackQuery($callbackId);
+                $this->sendAiProviderListMenu($chatId, $messageId);
+                break;
+
+            case 'cfg_ai_model_input':
+                $this->answerCallbackQuery($callbackId);
+                Cache::put("tg_setup_state_{$chatId}", ['step' => 'awaiting_ai_model'], now()->addMinutes(5));
+                $this->sendMessage($chatId, "🧠 <b>GANTI MODEL AI AKTIF</b>\n\nSilakan ketik nama model yang ingin digunakan.\n\n👉 <b>Contoh:</b>\n• OpenRouter: <code>minimax/minimax-m3:free</code>\n• OpenRouter: <code>anthropic/claude-3.5-sonnet</code>\n• DeepSeek: <code>deepseek-chat</code>\n• Gemini: <code>gemini-3.7-flash</code>\n• OpenAI: <code>gpt-4o-mini</code>\n• Groq: <code>llama-3.3-70b-versatile</code>\n\n<i>Ketik /batal untuk membatalkan.</i>");
+                break;
+
+            case 'cfg_ai_apikey_input':
+                $this->answerCallbackQuery($callbackId);
+                Cache::put("tg_setup_state_{$chatId}", ['step' => 'awaiting_ai_apikey'], now()->addMinutes(5));
+                $this->sendMessage($chatId, "🔑 <b>MASUKKAN API KEY PROVIDER</b>\n\nSilakan ketik API Key untuk provider AI yang aktif:\n<i>🔒 Pesan API Key akan otomatis segera dihapus dari chat demi keamanan.</i>\n\n<i>Ketik /batal untuk membatalkan.</i>");
+                break;
+
+            case 'cfg_ai_ocr_list':
+                $this->answerCallbackQuery($callbackId);
+                $this->sendAiOcrListMenu($chatId, $messageId);
+                break;
+
+            case 'cfg_menu_summary':
+                $this->answerCallbackQuery($callbackId);
+                $this->sendConfigSummaryMenu($chatId, $messageId);
+                break;
+
+            case 'cfg_menu_exit':
+                Cache::forget("tg_auth_session_{$chatId}");
+                Cache::forget("tg_setup_state_{$chatId}");
+                $this->answerCallbackQuery($callbackId, 'Sesi konfigurasi telah ditutup.');
+                if ($messageId) {
+                    $this->editMessageText($chatId, $messageId, "🔒 <b>SESI PENGATURAN DITUTUP</b>\n━━━━━━━━━━━━━━━━━━━━\n\nSemua perubahan telah disimpan ke file <code>.env</code> dan aktif di aplikasi.\n\n<i>Ketik /setup kapan saja jika ingin mengubah konfigurasi kembali.</i>");
+                }
+                break;
+
+            default:
+                if (str_starts_with($data, 'cfg_set_prov_')) {
+                    $provider = str_replace('cfg_set_prov_', '', $data);
+                    $updates = ['AI_PROVIDER' => $provider];
+
+                    // Set default recommended models if not yet set
+                    if ($provider === 'openrouter' && empty(env('OPENROUTER_MODEL'))) {
+                        $updates['OPENROUTER_MODEL'] = 'minimax/minimax-m3:free';
+                    } elseif ($provider === 'deepseek' && empty(env('DEEPSEEK_MODEL'))) {
+                        $updates['DEEPSEEK_MODEL'] = 'deepseek-chat';
+                    } elseif ($provider === 'gemini' && empty(env('GEMINI_MODEL'))) {
+                        $updates['GEMINI_MODEL'] = 'gemini-3.7-flash';
+                    }
+
+                    $this->environmentService->update($updates);
+                    $this->answerCallbackQuery($callbackId, "✓ Provider AI diubah ke: {$provider}");
+                    $this->sendAiSetupMenu($chatId, $messageId);
+                } elseif (str_starts_with($data, 'cfg_set_ocr_')) {
+                    $ocr = str_replace('cfg_set_ocr_', '', $data);
+                    $this->environmentService->update(['AI_OCR_MODE' => $ocr]);
+                    $this->answerCallbackQuery($callbackId, "✓ Mode OCR diubah ke: {$ocr}");
+                    $this->sendAiSetupMenu($chatId, $messageId);
+                }
+                break;
+        }
     }
 
     /**
@@ -960,6 +1673,8 @@ Anda dapat mencatat transaksi keuangan secara instan hanya dengan mengirimkan pe
 • <i>/saldo</i> (Cek Saldo Kas & Bank)
 • <i>/default</i> (Ganti dompet default)
 • <i>/model</i> (Cek model & provider AI aktif)
+• <i>/setup</i> (Wizard konfigurasi sistem .env)
+• <i>/set KEY NILAI</i> (Ubah konfigurasi .env langsung)
 
 Setiap pencatatan transaksi otomatis dilengkapi tombol <b>Undo / Batal</b> jika ada kesalahan.
 HELP;
@@ -1082,6 +1797,25 @@ HELP;
         }
 
         return $result;
+    }
+
+    /**
+     * Delete a message in Telegram.
+     */
+    public function deleteMessage(string|int $chatId, int $messageId): array
+    {
+        if (empty($this->botToken)) {
+            return [];
+        }
+
+        $payload = [
+            'chat_id' => $chatId,
+            'message_id' => $messageId,
+        ];
+
+        $response = Http::post("https://api.telegram.org/bot{$this->botToken}/deleteMessage", $payload);
+
+        return $response->json() ?? [];
     }
 
     /**

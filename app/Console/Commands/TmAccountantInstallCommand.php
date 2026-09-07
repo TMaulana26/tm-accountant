@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Models\Account;
 use App\Models\User;
+use App\Services\System\EnvironmentService;
 use Database\Seeders\AccountSeeder;
 use Exception;
 use Illuminate\Console\Command;
@@ -319,43 +320,6 @@ class TmAccountantInstallCommand extends Command
      */
     protected function updateEnvironmentFile(array $values): void
     {
-        $envPath = base_path('.env');
-        if (! File::exists($envPath)) {
-            return;
-        }
-
-        $envContent = File::get($envPath);
-
-        foreach ($values as $key => $value) {
-            if ($value === null) {
-                continue;
-            }
-
-            $value = trim($value);
-            if (str_contains($value, ' ') && ! str_starts_with($value, '"')) {
-                $value = '"'.$value.'"';
-            }
-
-            if (preg_match("/^{$key}=/m", $envContent)) {
-                $envContent = preg_replace("/^{$key}=.*/m", "{$key}={$value}", $envContent);
-            } else {
-                $envContent .= "\n{$key}={$value}";
-            }
-        }
-
-        try {
-            @chmod($envPath, 0666);
-            if (@file_put_contents($envPath, $envContent) === false) {
-                $handle = @fopen($envPath, 'w');
-                if ($handle) {
-                    fwrite($handle, $envContent);
-                    fclose($handle);
-                } else {
-                    File::put($envPath, $envContent);
-                }
-            }
-        } catch (\Throwable $e) {
-            $this->warn('Could not automatically write to .env: '.$e->getMessage());
-        }
+        app(EnvironmentService::class)->update($values);
     }
 }
