@@ -232,9 +232,13 @@ DAFTAR AKUN (CHART OF ACCOUNTS) AKTIF:
 7. Jika pengguna menanyakan ringkasan keuangan/laporan pemasukan & pengeluaran secara global (misal: "keuangan saya 1 minggu", "berapa total pengeluaran bulan ini?", "ringkasan kas hari ini"), panggil `query_financial_summary`.
 8. Jika pengguna menanyakan riwayat/daftar transaksi spesifik, frekuensi transaksi ("berapa kali..."), rincian apa saja yang dibeli ("apa saja dan berapa..."), pengeluaran kategori tertentu, atau mutasi dompet/bank (misal: "saya donasi berapa kali dan habis berapa", "beli makan dan minum apa saja dari tanggal 1 sampai sekarang", "mutasi BCA minggu ini", "berapa kali beli bensin bulan ini", "rincian jajan gopay bulan ini"):
    - WAJIB panggil `query_transactions`.
+   - ATURAN PENTING KATEGORI & KATA KUNCI:
+     * Jika pengguna menyebutkan jenis kebutuhan atau kategori (seperti "makan", "minum", "jajan", "kopi", "bensin", "donasi", "pulsa", "belanja"), kamu WAJIB mengisi `account_category` sesuai akun beban yang paling relevan dari daftar di atas (misal: "Makanan & Minuman (Harian)", "Donasi, Zakat & Sedekah", "Transportasi & Bensin").
+     * Perhatian: Kata "apa saja" (misal: "beli makan dan minum apa saja dari tanggal 1") berarti meminta daftar rincian barang dalam kategori tersebut, BUKAN meminta semua transaksi secara global. JANGAN PERNAH mengosongkan `account_category` jika pengguna menyebutkan jenis kategori pengeluaran!
+     * HANYA kosongkan `account_category` dan `keyword` jika pengguna memang bertanya tentang transaksi umum tanpa menyebutkan kategori sama sekali (contoh: "cek semua transaksi minggu ini", "daftar mutasi dari tanggal 1").
    - Ekstrak parameter:
-     * `keyword`: kata kunci pencarian (contoh: "donasi", "bensin", "kopi", "makan").
-     * `account_category`: kategori akun beban/pendapatan yang relevan (contoh: "Makanan & Minuman (Harian)", "Donasi, Zakat & Sedekah", "Transportasi & Bensin").
+     * `keyword`: kata kunci pencarian keterangan barang/jasa spesifik jika ada (contoh: "kopi", "telur", "nasi padang").
+     * `account_category`: nama akun beban/pendapatan yang relevan (contoh: "Makanan & Minuman (Harian)", "Kafe, Resto & Nongkrong", "Donasi, Zakat & Sedekah", "Transportasi & Bensin").
      * `wallet_name`: nama dompet/rekening jika ditanyakan spesifik (contoh: "BCA", "GoPay", "Kas Tunai").
      * `period`: "today", "yesterday", "this_week", "last_week", "this_month", "last_month", "this_year", "custom".
      * `start_date` / `end_date`: tanggal spesifik jika pengguna menyebutkan rentang tanggal (format YYYY-MM-DD, contoh: dari tanggal 1 -> start_date = "YYYY-MM-01", end_date = tanggal hari ini).
@@ -403,7 +407,7 @@ PROMPT;
                             ],
                             'account_category' => [
                                 'type' => 'string',
-                                'description' => 'Nama akun beban/pendapatan atau kategori transaksi yang relevan (contoh: Makanan & Minuman (Harian), Donasi, Zakat & Sedekah, Transportasi & Bensin, Kafe, Resto & Nongkrong).',
+                                'description' => 'Nama akun beban/kategori yang relevan. WAJIB diisi jika user menanyakan kebutuhan tertentu (contoh: Makanan & Minuman (Harian), Kafe, Resto & Nongkrong, Donasi, Zakat & Sedekah, Transportasi & Bensin, Belanja Dapur & Groceries). Kosongkan hanya jika menanyakan seluruh mutasi/transaksi global tanpa kategori.',
                             ],
                             'wallet_name' => [
                                 'type' => 'string',

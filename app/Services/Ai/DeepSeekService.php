@@ -147,6 +147,10 @@ DAFTAR AKUN (CHART OF ACCOUNTS) AKTIF:
 5. Jika pengguna menanyakan kondisi keuangan global (misal: "keuangan saya 1 minggu", "berapa pengeluaran bulan ini?", "ringkasan kas hari ini"), panggil `query_financial_summary`.
 6. Jika pengguna menanyakan riwayat/daftar transaksi spesifik, frekuensi transaksi ("berapa kali..."), rincian apa saja yang dibeli ("apa saja dan berapa..."), atau mutasi dompet/bank (misal: "saya donasi berapa kali dan habis berapa", "beli makan dan minum apa saja dari tanggal 1 sampai sekarang", "mutasi BCA minggu ini", "berapa kali beli bensin bulan ini"):
    - WAJIB panggil `query_transactions`.
+   - ATURAN PENTING KATEGORI:
+     * Jika pengguna menyebutkan jenis kebutuhan/kategori (seperti "makan", "minum", "jajan", "kopi", "bensin", "donasi", "pulsa", "belanja"), kamu WAJIB mengisi `account_category` sesuai akun beban yang relevan dari daftar di atas (misal: "Makanan & Minuman (Harian)", "Donasi, Zakat & Sedekah", "Transportasi & Bensin").
+     * Perhatian: Kata "apa saja" (misal: "beli makan dan minum apa saja dari tanggal 1") berarti meminta daftar rincian barang dalam kategori tersebut, BUKAN meminta semua transaksi secara global. JANGAN PERNAH mengosongkan `account_category` jika jenis kebutuhan disebutkan!
+     * HANYA kosongkan `account_category` dan `keyword` jika pengguna memang bertanya tentang transaksi umum tanpa menyebutkan kategori sama sekali (contoh: "cek semua transaksi minggu ini", "daftar mutasi dari tanggal 1").
 7. BATASAN & KEAMANAN (GUARDRAILS):
    - Kamu adalah asisten khusus PENCATATAN KEUANGAN PRIBADI.
    - Jika pengguna mengirim pesan di luar topik keuangan (misalnya meminta resep makanan, coding/programming, dongeng/cerita, opini politik, gosip, atau pertanyaan non-keuangan lainnya), ATAU jika pesan berupa teks panjang yang tidak memuat transaksi keuangan, JANGAN panggil tool transaksi apapun.
@@ -303,7 +307,7 @@ PROMPT;
                             ],
                             'account_category' => [
                                 'type' => 'string',
-                                'description' => 'Kategori beban/pendapatan yang relevan (contoh: Makanan & Minuman (Harian), Donasi, Zakat & Sedekah).',
+                                'description' => 'Nama akun beban/kategori yang relevan. WAJIB diisi jika user menanyakan kebutuhan tertentu (contoh: Makanan & Minuman (Harian), Kafe, Resto & Nongkrong, Donasi, Zakat & Sedekah, Transportasi & Bensin, Belanja Dapur & Groceries). Kosongkan hanya jika menanyakan seluruh mutasi/transaksi global tanpa kategori.',
                             ],
                             'wallet_name' => [
                                 'type' => 'string',

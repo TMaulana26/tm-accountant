@@ -743,24 +743,86 @@ class AccountingService
             }
         }
 
-        // Filter by keyword in description or account name
+        // Filter by account category and keyword
+        $category = trim($filters['account_category'] ?? '');
         $keyword = trim($filters['keyword'] ?? '');
-        if (! empty($keyword)) {
-            $query->where(function ($q) use ($keyword) {
-                $q->where('description', 'like', "%{$keyword}%")
-                    ->orWhereHas('items.account', function ($aq) use ($keyword) {
-                        $aq->where('name', 'like', "%{$keyword}%");
+
+        // If keyword represents a general category (e.g. "makan", "makanan", "makan dan minum"), treat it as category
+        $isKeywordCategoryLike = false;
+        if (! empty($keyword) && (
+            str_contains(strtolower($keyword), 'makan') ||
+            str_contains(strtolower($keyword), 'minum') ||
+            str_contains(strtolower($keyword), 'donasi') ||
+            str_contains(strtolower($keyword), 'sedekah') ||
+            str_contains(strtolower($keyword), 'bensin') ||
+            str_contains(strtolower($keyword), 'pulsa')
+        )) {
+            $isKeywordCategoryLike = true;
+            if (empty($category)) {
+                $category = $keyword;
+                $keyword = '';
+            }
+        }
+
+        // Apply account category filter
+        if (! empty($category)) {
+            $catLower = strtolower($category);
+            $targetAccountIds = [];
+
+            if (str_contains($catLower, 'makan') || str_contains($catLower, 'minum') || str_contains($catLower, 'kuliner') || str_contains($catLower, 'jajan') || str_contains($catLower, 'kopi') || str_contains($catLower, 'kafe')) {
+                // Include both Makanan & Minuman and Kafe, Resto & Nongkrong
+                $targetAccountIds = Account::where('type', AccountType::Expense)
+                    ->where(function ($q) {
+                        $q->where('name', 'like', '%Makan%')
+                            ->orWhere('name', 'like', '%Minum%')
+                            ->orWhere('name', 'like', '%Kafe%')
+                            ->orWhere('name', 'like', '%Resto%');
+                    })
+                    ->pluck('id')
+                    ->toArray();
+            } elseif (str_contains($catLower, 'donasi') || str_contains($catLower, 'sedekah') || str_contains($catLower, 'zakat') || str_contains($catLower, 'infaq')) {
+                $targetAccountIds = Account::where('name', 'like', '%Donasi%')
+                    ->orWhere('name', 'like', '%Zakat%')
+                    ->orWhere('name', 'like', '%Sedekah%')
+                    ->pluck('id')
+                    ->toArray();
+            } elseif (str_contains($catLower, 'bensin') || str_contains($catLower, 'transport') || str_contains($catLower, 'bbm')) {
+                $targetAccountIds = Account::where('name', 'like', '%Transport%')->pluck('id')->toArray();
+            } elseif (str_contains($catLower, 'pulsa') || str_contains($catLower, 'paket data') || str_contains($catLower, 'kuota') || str_contains($catLower, 'internet')) {
+                $targetAccountIds = Account::where('name', 'like', '%Pulsa%')->orWhere('name', 'like', '%Internet%')->pluck('id')->toArray();
+            } elseif (str_contains($catLower, 'dapur') || str_contains($catLower, 'sembako') || str_contains($catLower, 'groceries') || str_contains($catLower, 'belanja')) {
+                $targetAccountIds = Account::where('name', 'like', '%Belanja%')->orWhere('name', 'like', '%Dapur%')->pluck('id')->toArray();
+            } elseif (str_contains($catLower, 'hiburan') || str_contains($catLower, 'bioskop') || str_contains($catLower, 'game')) {
+                $targetAccountIds = Account::where('name', 'like', '%Hiburan%')->pluck('id')->toArray();
+            }
+
+            $normalizedCat = str_ireplace(' dan ', ' & ', $category);
+
+            $query->where(function ($q) use ($category, $normalizedCat, $targetAccountIds) {
+                if (! empty($targetAccountIds)) {
+                    $q->whereHas('items', function ($iq) use ($targetAccountIds) {
+                        $iq->whereIn('account_id', $targetAccountIds);
                     });
+                } else {
+                    $q->where('description', 'like', "%{$category}%")
+                        ->orWhere('description', 'like', "%{$normalizedCat}%")
+                        ->orWhereHas('items.account', function ($aq) use ($category, $normalizedCat) {
+                            $aq->where('name', 'like', "%{$category}%")
+                                ->orWhere('name', 'like', "%{$normalizedCat}%");
+                        });
+                }
             });
         }
 
-        // Filter by account category
-        $category = trim($filters['account_category'] ?? '');
-        if (! empty($category)) {
-            $query->where(function ($q) use ($category) {
-                $q->where('description', 'like', "%{$category}%")
-                    ->orWhereHas('items.account', function ($aq) use ($category) {
-                        $aq->where('name', 'like', "%{$category}%");
+        // Apply item-specific keyword filter
+        if (! empty($keyword) && ! $isKeywordCategoryLike) {
+            $normalizedKeyword = str_ireplace(' dan ', ' & ', $keyword);
+            $query->where(function ($q) use ($keyword, $normalizedKeyword) {
+                $q->where('description', 'like', "%{$keyword}%")
+                    ->orWhere('description', 'like', "%{$normalizedKeyword}%")
+                    ->orWhereHas('items.account', function ($aq) use ($keyword, $normalizedKeyword) {
+                        $aq->where('name', 'like', "%{$keyword}%")
+                            ->orWhere('name', 'like', "%{$normalizedKeyword}%");
                     });
             });
         }

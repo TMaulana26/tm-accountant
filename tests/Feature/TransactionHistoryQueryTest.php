@@ -365,3 +365,54 @@ test('Telegram bot displays all transactions even when more than 25 without trun
             && ! str_contains($text, 'tercatat di web admin');
     });
 });
+
+test('AccountingService::queryTransactions smartly matches category and keywords like makan dan minum', function () {
+    // 1 Food item: Nasi Uduk (in Makanan & Minuman (Harian))
+    $this->accountingService->createJournalEntry([
+        'date' => Carbon::now(),
+        'description' => 'Beli Nasi Uduk',
+        'source' => JournalSource::Telegram,
+    ], [
+        ['account_id' => $this->foodAccount->id, 'debit' => 8000, 'credit' => 0],
+        ['account_id' => $this->cashAccount->id, 'debit' => 0, 'credit' => 8000],
+    ]);
+
+    // 1 Cafe item: Point Coffee (in Kafe, Resto & Nongkrong)
+    $cafeAccount = Account::where('code', '6-20001')->firstOrFail();
+    $this->accountingService->createJournalEntry([
+        'date' => Carbon::now(),
+        'description' => 'Beli Point Coffee di Indomaret',
+        'source' => JournalSource::Telegram,
+    ], [
+        ['account_id' => $cafeAccount->id, 'debit' => 25000, 'credit' => 0],
+        ['account_id' => $this->cashAccount->id, 'debit' => 0, 'credit' => 25000],
+    ]);
+
+    // 1 Non-food item: Donasi Masjid (in Donasi, Zakat & Sedekah)
+    $this->accountingService->createJournalEntry([
+        'date' => Carbon::now(),
+        'description' => 'Donasi Masjid',
+        'source' => JournalSource::Telegram,
+    ], [
+        ['account_id' => $this->donationAccount->id, 'debit' => 5000, 'credit' => 0],
+        ['account_id' => $this->cashAccount->id, 'debit' => 0, 'credit' => 5000],
+    ]);
+
+    // Test with category phrase 'makan dan minum'
+    $result = $this->accountingService->queryTransactions([
+        'account_category' => 'makan dan minum',
+        'period' => 'this_month',
+    ]);
+
+    expect($result['total_count'])->toBe(2)
+        ->and($result['total_amount'])->toEqual(33000.0);
+
+    // Test with keyword 'makan dan minum'
+    $resultKeyword = $this->accountingService->queryTransactions([
+        'keyword' => 'makan dan minum',
+        'period' => 'this_month',
+    ]);
+
+    expect($resultKeyword['total_count'])->toBe(2)
+        ->and($resultKeyword['total_amount'])->toEqual(33000.0);
+});
