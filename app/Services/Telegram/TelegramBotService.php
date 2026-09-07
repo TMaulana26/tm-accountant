@@ -844,28 +844,54 @@ class TelegramBotService
         $formattedTotal = 'Rp '.number_format($totalAmount, 0, ',', '.');
         $avgPerTransaction = ($count > 0) ? 'Rp '.number_format($totalAmount / $count, 0, ',', '.') : 'Rp 0';
 
-        $text = "{$emoji} <b>RINGKASAN {$topic}</b>\n"
-            ."🗓️ <i>Periode: {$periodLabel}</i>\n"
+        $totalLabel = 'Total Nominal';
+        if ($result['total_expense'] > 0 && $result['total_income'] == 0) {
+            $totalLabel = 'Total Pengeluaran';
+        } elseif ($result['total_income'] > 0 && $result['total_expense'] == 0) {
+            $totalLabel = 'Total Pemasukan';
+        } elseif (! empty($walletName)) {
+            $totalLabel = 'Total Mutasi';
+        }
+
+        $text = "{$emoji} <b>{$topic}</b>\n"
+            ."🗓️ <i>{$periodLabel}</i> • <b>{$count} Transaksi</b>\n"
             ."━━━━━━━━━━━━━━━━━━━━\n\n"
-            ."📊 <b>Statistik:</b>\n"
-            ."• <b>Frekuensi:</b> {$count} kali transaksi\n"
-            ."• <b>Total Nominal:</b> <code>{$formattedTotal}</code>\n"
-            ."• <b>Rata-rata:</b> <code>{$avgPerTransaction}</code> / transaksi\n";
+            ."💰 <b>{$totalLabel}:</b> <code>{$formattedTotal}</code>\n";
+
+        if ($count > 1) {
+            $text .= "📊 <b>Rata-rata:</b> <code>{$avgPerTransaction}</code> / transaksi\n";
+        }
 
         if ($walletBalance !== null && $walletAccount) {
             $formattedBal = 'Rp '.number_format($walletBalance, 0, ',', '.');
-            $text .= "• <b>Sisa Saldo {$walletAccount->name}:</b> <code>{$formattedBal}</code>\n";
+            $cleanWallet = $this->cleanWalletDisplayName($walletAccount->name);
+            $text .= "💳 <b>Sisa Saldo {$cleanWallet}:</b> <code>{$formattedBal}</code>\n";
         }
-
-        $text .= "\n📋 <b>Rincian Transaksi:</b>\n";
 
         $maxDisplay = 25;
         $itemsToDisplay = array_slice($transactions, 0, $maxDisplay);
-        foreach ($itemsToDisplay as $idx => $t) {
-            $num = $idx + 1;
-            $amt = 'Rp '.number_format($t['amount'], 0, ',', '.');
-            $walletInfo = ! empty($t['wallet_name']) ? " <i>({$t['wallet_name']})</i>" : '';
-            $text .= "{$num}. <b>{$t['date']}</b> — {$t['description']}: <code>{$amt}</code>{$walletInfo}\n";
+
+        // Group transactions by date
+        $grouped = [];
+        foreach ($itemsToDisplay as $t) {
+            $grouped[$t['date']][] = $t;
+        }
+
+        foreach ($grouped as $date => $items) {
+            $text .= "\n📅 <b>{$date}</b>\n";
+            foreach ($items as $item) {
+                $amt = 'Rp '.number_format($item['amount'], 0, ',', '.');
+                $walletSuffix = '';
+
+                if (! $walletAccount && ! empty($item['wallet_name'])) {
+                    $shortWallet = $this->cleanWalletDisplayName($item['wallet_name']);
+                    if (! empty($shortWallet)) {
+                        $walletSuffix = " <i>({$shortWallet})</i>";
+                    }
+                }
+
+                $text .= "• {$item['description']} — <code>{$amt}</code>{$walletSuffix}\n";
+            }
         }
 
         if ($count > $maxDisplay) {
@@ -875,6 +901,28 @@ class TelegramBotService
 
         $this->sendMessage($chatId, $text);
         $log->update(['ai_response' => $text]);
+    }
+
+    /**
+     * Clean and simplify wallet account display name.
+     */
+    protected function cleanWalletDisplayName(?string $name): string
+    {
+        if (empty($name)) {
+            return '';
+        }
+
+        if (str_contains($name, '➡️')) {
+            $parts = explode('➡️', $name);
+
+            return $this->cleanWalletDisplayName($parts[0]).' ➡️ '.$this->cleanWalletDisplayName($parts[1]);
+        }
+
+        $clean = preg_replace('/^(?:E-Wallet|Debit|Kredit)\s+/i', '', $name);
+        $clean = preg_replace('/\s*\([^)]*\)/', '', $clean);
+        $clean = preg_replace('/\s*\/.*$/', '', $clean);
+
+        return trim($clean);
     }
 
     /**

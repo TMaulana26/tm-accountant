@@ -204,8 +204,8 @@ test('Telegram bot handles query_transactions intent with frequency and nominal 
         $body = $request->data();
         $text = $body['text'] ?? '';
 
-        return str_contains($text, 'RINGKASAN DONASI & SEDEKAH')
-            && str_contains($text, '1 kali transaksi')
+        return str_contains($text, 'DONASI & SEDEKAH')
+            && str_contains($text, '1 Transaksi')
             && str_contains($text, 'Rp 50.000')
             && str_contains($text, 'Sedekah Subuh');
     });
@@ -244,5 +244,75 @@ test('Telegram bot handles query_transactions with empty results gracefully', fu
 
         return str_contains($text, 'TIDAK DITEMUKAN')
             && str_contains($text, 'pizza');
+    });
+});
+
+test('Telegram bot groups transactions by date and cleans wallet display names', function () {
+    $parent = Account::where('code', '1-10000')->first();
+    $gopay = Account::firstOrCreate(['code' => '1-10004'], [
+        'name' => 'E-Wallet GoPay',
+        'type' => AccountType::Asset,
+        'category' => AccountCategory::CashAndBank,
+        'parent_id' => $parent?->id,
+        'is_active' => true,
+    ]);
+
+    // Day 1
+    $this->accountingService->createJournalEntry([
+        'date' => Carbon::parse('2026-09-02'),
+        'description' => 'Nasi Uduk',
+        'source' => JournalSource::Telegram,
+    ], [
+        ['account_id' => $this->foodAccount->id, 'debit' => 8000, 'credit' => 0],
+        ['account_id' => $this->cashAccount->id, 'debit' => 0, 'credit' => 8000],
+    ]);
+
+    // Day 2
+    $this->accountingService->createJournalEntry([
+        'date' => Carbon::parse('2026-09-03'),
+        'description' => 'Paket Ayam Crispy',
+        'source' => JournalSource::Telegram,
+    ], [
+        ['account_id' => $this->foodAccount->id, 'debit' => 22000, 'credit' => 0],
+        ['account_id' => $gopay->id, 'debit' => 0, 'credit' => 22000],
+    ]);
+
+    $mockAi = mock(AiServiceManager::class);
+    $mockAi->shouldReceive('processMessage')
+        ->once()
+        ->andReturn([
+            'intent' => 'query_transactions',
+            'parameters' => [
+                'account_category' => 'Makanan',
+                'start_date' => '2026-09-01',
+                'end_date' => '2026-09-07',
+            ],
+            'reply_text' => null,
+        ]);
+
+    app()->instance(AiServiceManager::class, $mockAi);
+
+    $botService = app(TelegramBotService::class);
+
+    $botService->handleUpdate([
+        'message' => [
+            'message_id' => 203,
+            'chat' => ['id' => 123456789],
+            'from' => ['id' => 123456789, 'username' => 'testuser'],
+            'text' => 'makan apa saja dari tanggal 1 sampai 7',
+        ],
+    ]);
+
+    Http::assertSent(function ($request) {
+        $body = $request->data();
+        $text = $body['text'] ?? '';
+
+        return str_contains($text, 'MAKANAN & MINUMAN')
+            && str_contains($text, '2 Transaksi')
+            && str_contains($text, 'Rp 30.000')
+            && str_contains($text, '📅 <b>02 Sep 2026</b>')
+            && str_contains($text, '• Nasi Uduk — <code>Rp 8.000</code> <i>(Kas Tunai)</i>')
+            && str_contains($text, '📅 <b>03 Sep 2026</b>')
+            && str_contains($text, '• Paket Ayam Crispy — <code>Rp 22.000</code> <i>(GoPay)</i>');
     });
 });
