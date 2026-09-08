@@ -21,11 +21,11 @@
         }
 
         .tm-user-bubble {
-            background-color: #2563eb !important;
+            background-color: #7c3aed !important;
             color: #ffffff !important;
             border-radius: 1rem 1rem 0.25rem 1rem;
             padding: 0.75rem 1rem;
-            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+            box-shadow: 0 1px 3px 0 rgba(124, 58, 237, 0.2);
         }
         .tm-user-bubble p, .tm-user-bubble span {
             color: #ffffff !important;

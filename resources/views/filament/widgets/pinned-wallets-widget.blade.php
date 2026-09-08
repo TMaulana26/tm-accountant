@@ -19,14 +19,14 @@
                         Live WebSockets
                     </span>
                 </div>
-                <a href="{{ route('filament.admin.resources.wallets.index') }}" class="text-xs font-semibold text-emerald-600 hover:text-emerald-700 hover:underline dark:text-emerald-400 dark:hover:text-emerald-300">
+                <a href="{{ route('filament.admin.resources.wallets.index') }}" class="text-xs font-semibold text-violet-600 hover:text-violet-700 hover:underline dark:text-violet-400 dark:hover:text-violet-300">
                     Kelola Semua Dompet →
                 </a>
             </div>
 
             <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 @foreach($wallets as $w)
-                    <div class="group relative flex flex-col justify-between overflow-hidden rounded-2xl border border-gray-200/90 bg-white p-4.5 shadow-sm transition-all duration-200 hover:border-emerald-500/50 hover:shadow-md dark:border-gray-800 dark:bg-gray-900/90 dark:hover:border-emerald-500/50">
+                    <div class="group relative flex flex-col justify-between overflow-hidden rounded-2xl border border-gray-200/90 bg-white p-4.5 shadow-sm transition-all duration-200 hover:border-violet-500/50 hover:shadow-md dark:border-gray-800 dark:bg-gray-900/90 dark:hover:border-violet-500/50">
                         <!-- Top Header Section -->
                         <div class="flex items-start justify-between gap-3">
                             <div class="flex items-center gap-3 min-w-0 flex-1">

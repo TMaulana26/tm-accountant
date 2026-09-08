@@ -49,7 +49,12 @@ class AdminPanelProvider extends PanelProvider
             ])
             ->brandName('TM Accountant')
             ->colors([
-                'primary' => Color::Emerald,
+                'primary' => Color::Violet,
+                'secondary' => Color::Emerald,
+                'info' => Color::Indigo,
+                'success' => Color::Emerald,
+                'warning' => Color::Amber,
+                'danger' => Color::Rose,
                 'gray' => Color::Slate,
             ])
             ->navigationGroups([
