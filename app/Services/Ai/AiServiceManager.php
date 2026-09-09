@@ -8,6 +8,7 @@ use App\Services\Accounting\AccountingService;
 use App\Services\Ai\Contracts\AiDriverInterface;
 use App\Services\Ai\Drivers\GeminiDriver;
 use App\Services\Ai\Drivers\OpenAiCompatibleDriver;
+use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
 
 class AiServiceManager

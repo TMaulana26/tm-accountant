@@ -256,7 +256,7 @@ class TelegramBotService
                     }
                     break;
             }
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
             Log::error('Telegram Bot processing error: '.$e->getMessage(), ['trace' => $e->getTraceAsString()]);
             $errorMsg = '⚠️ <b>Terjadi Kesalahan:</b> '.htmlspecialchars($e->getMessage());
             $this->sendMessage($chatId, $errorMsg);
@@ -331,14 +331,22 @@ class TelegramBotService
 
                     return;
                 }
+
+                // If already marked failed or currently in progress, skip retry spam from Telegram
+                if ($existing->status === TelegramMessageStatus::Failed && $existing->updated_at?->gt(now()->subMinutes(5))) {
+                    Log::info("Telegram image message {$messageId} in chat {$chatId} recently failed. Skipping duplicate execution.");
+
+                    return;
+                }
+
                 $telegramLog = $existing;
             }
         }
 
-        // Send processing status
-        $this->sendMessage($chatId, '🔍 <i>Sedang membaca struk/screenshot dengan Vision OCR & memproses pembukuan...</i>');
-
+        // Send processing status ONLY on initial message to prevent duplicate status spam
         if (! $telegramLog) {
+            $this->sendMessage($chatId, '🔍 <i>Sedang membaca struk/screenshot dengan Vision OCR & memproses pembukuan...</i>');
+
             $telegramLog = TelegramMessage::create([
                 'telegram_message_id' => $messageId,
                 'chat_id' => $chatId,
@@ -405,7 +413,7 @@ class TelegramBotService
                     $telegramLog->update(['ai_response' => $reply]);
                     break;
             }
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
             Log::error('Telegram Image OCR error: '.$e->getMessage(), ['trace' => $e->getTraceAsString()]);
             $errorMsg = '⚠️ <b>Gagal Memproses Gambar:</b> '.htmlspecialchars($e->getMessage());
             $this->sendMessage($chatId, $errorMsg);
