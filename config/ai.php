@@ -84,7 +84,7 @@ return [
         'gemini' => [
             'base_url' => env('GEMINI_BASE_URL', env('AI_BASE_URL', 'https://generativelanguage.googleapis.com/v1beta')),
             'api_key' => env('GEMINI_API_KEY', env('AI_API_KEY', '')),
-            'model' => env('GEMINI_MODEL', env('AI_MODEL', 'gemini-3.7-flash')),
+            'model' => env('GEMINI_MODEL', env('AI_MODEL', 'gemini-3.5-flash-lite')),
             'supports_vision' => true,
             'driver' => 'gemini',
         ],

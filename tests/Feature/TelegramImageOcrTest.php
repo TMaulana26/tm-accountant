@@ -6,6 +6,7 @@ use App\Enums\TelegramMessageStatus;
 use App\Models\Account;
 use App\Models\JournalEntry;
 use App\Models\TelegramMessage;
+use App\Services\Accounting\AccountingService;
 use App\Services\Ai\AiServiceManager;
 use App\Services\Telegram\TelegramBotService;
 use Database\Seeders\AccountSeeder;
@@ -111,4 +112,97 @@ test('bot processes photo receipt via Gemini OCR and AI accounting pipeline', fu
             str_contains($request['text'], 'NOTA / STRUK BERHASIL DIPROSES') &&
             str_contains($request['text'], 'Belanja Alfamart');
     });
+});
+
+test('caption payment method strictly overrides receipt image payment method and AI defaults', function () {
+    $parent = Account::where('code', '1-10000')->first();
+    $gopay = Account::firstOrCreate(['code' => '1-10003'], [
+        'name' => 'E-Wallet GoPay',
+        'type' => AccountType::Asset,
+        'category' => AccountCategory::CashAndBank,
+        'parent_id' => $parent?->id,
+        'is_active' => true,
+    ]);
+
+    $img = imagecreatetruecolor(100, 100);
+    ob_start();
+    imagejpeg($img);
+    $validImageBytes = ob_get_clean();
+    imagedestroy($img);
+
+    Http::fake([
+        'https://api.telegram.org/botmock_bot_token/getFile' => Http::response([
+            'ok' => true,
+            'result' => [
+                'file_id' => 'photo_padang',
+                'file_path' => 'photos/file_padang.jpg',
+            ],
+        ], 200),
+        'https://api.telegram.org/file/botmock_bot_token/photos/file_padang.jpg' => Http::response($validImageBytes, 200),
+        'https://api.telegram.org/botmock_bot_token/sendMessage' => Http::response(['ok' => true, 'result' => []], 200),
+    ]);
+
+    // Simulate AI returning Kas Tunai because receipt OCR says Tabungan by Jago
+    $mockAi = mock(AiServiceManager::class);
+    $mockAi->shouldReceive('processReceiptImage')
+        ->once()
+        ->with($validImageBytes, 'image/jpeg', 'beli nasi Padang pakai gopay')
+        ->andReturn([
+            'intent' => 'record_expense',
+            'parameters' => [
+                'amount' => 18000,
+                'description' => 'Beli Nasi Padang di Naufal Dimensi Software',
+                'expense_account' => 'Makanan & Minuman (Harian)',
+                'payment_account' => 'Kas Tunai', // AI mistakenly defaulted to Kas Tunai
+                'date' => '2026-09-09',
+            ],
+            'ocr_text' => "Naufal Dimensi Software\nMetode pembayaran: Tabungan by Jago\nJumlah: Rp 18.000",
+            'reply_text' => null,
+        ]);
+
+    $this->app->instance(AiServiceManager::class, $mockAi);
+
+    $botService = app(TelegramBotService::class);
+
+    $botService->handleUpdate([
+        'message' => [
+            'message_id' => 777,
+            'chat' => ['id' => 123456789],
+            'from' => ['id' => 123456789, 'username' => 'testuser'],
+            'caption' => 'beli nasi Padang pakai gopay',
+            'photo' => [
+                ['file_id' => 'photo_padang', 'width' => 800, 'height' => 1200],
+            ],
+        ],
+    ]);
+
+    expect(JournalEntry::count())->toBe(1);
+    $entry = JournalEntry::first();
+    expect($entry->isBalanced())->toBeTrue()
+        ->and($entry->total_debit)->toBe(18000.0)
+        ->and($entry->description)->toBe('Beli Nasi Padang di Naufal Dimensi Software');
+
+    // Credit side MUST be E-Wallet GoPay, not Kas Tunai
+    $creditItem = $entry->items()->where('credit', '>', 0)->first();
+    expect($creditItem->account_id)->toBe($gopay->id)
+        ->and($creditItem->account->name)->toBe('E-Wallet GoPay');
+});
+
+test('AccountingService smart wallet matching detects wallets from phrases and prepositions', function () {
+    $parent = Account::where('code', '1-10000')->first();
+    $gopay = Account::firstOrCreate(['code' => '1-10003'], [
+        'name' => 'E-Wallet GoPay',
+        'type' => AccountType::Asset,
+        'category' => AccountCategory::CashAndBank,
+        'parent_id' => $parent?->id,
+        'is_active' => true,
+    ]);
+
+    $accounting = app(AccountingService::class);
+
+    expect($accounting->findPaymentAccount('pakai gopay')->id)->toBe($gopay->id)
+        ->and($accounting->findPaymentAccount('pake gopay')->id)->toBe($gopay->id)
+        ->and($accounting->findPaymentAccount('beli nasi Padang pakai gopay')->id)->toBe($gopay->id)
+        ->and($accounting->detectWalletFromText('nasi goreng via bca')->code)->toBe('1-10002')
+        ->and($accounting->detectWalletFromText('tidak ada rekening sama sekali'))->toBeNull();
 });

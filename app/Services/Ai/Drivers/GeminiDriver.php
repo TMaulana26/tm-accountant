@@ -12,7 +12,7 @@ class GeminiDriver implements AiDriverInterface
     public function __construct(
         protected string $baseUrl,
         protected string $apiKey,
-        protected string $model = 'gemini-3.7-flash',
+        protected string $model = 'gemini-3.5-flash-lite',
         protected int $timeout = 60,
         protected bool $supportsVision = true
     ) {
@@ -123,7 +123,7 @@ class GeminiDriver implements AiDriverInterface
             ],
         ];
 
-        $modelsToTry = array_unique([$this->model, 'gemini-3.1-flash-lite', 'gemini-3.6-flash', 'gemini-3.7-flash', 'gemini-3.5-flash']);
+        $modelsToTry = array_unique([$this->model, 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-3.5-flash', 'gemini-3.6-flash']);
         $lastException = null;
 
         foreach ($modelsToTry as $modelName) {
@@ -131,9 +131,6 @@ class GeminiDriver implements AiDriverInterface
                 $tryEndpoint = "{$this->baseUrl}/models/{$modelName}:generateContent?key={$this->apiKey}";
 
                 $generationConfig = ['temperature' => 0.1];
-                if (str_contains($modelName, '3.7')) {
-                    $generationConfig['thinkingConfig'] = ['thinkingBudget' => 0];
-                }
 
                 $modelPayload = [
                     'contents' => $payload['contents'],

@@ -4,6 +4,7 @@ namespace App\Services\Ai;
 
 use App\Models\Account;
 use App\Models\User;
+use App\Services\Accounting\AccountingService;
 use App\Services\Ai\Contracts\AiDriverInterface;
 use App\Services\Ai\Drivers\GeminiDriver;
 use App\Services\Ai\Drivers\OpenAiCompatibleDriver;
@@ -37,7 +38,7 @@ class AiServiceManager
             $this->drivers[$name] = new GeminiDriver(
                 baseUrl: $config['base_url'],
                 apiKey: $config['api_key'] ?? '',
-                model: $config['model'] ?? 'gemini-3.7-flash',
+                model: $config['model'] ?? 'gemini-3.5-flash-lite',
                 timeout: $timeout,
                 supportsVision: (bool) ($config['supports_vision'] ?? true)
             );
@@ -92,10 +93,10 @@ class AiServiceManager
 
         if (! empty($caption)) {
             $combinedPrompt .= "\nCatatan Tambahan / Caption dari Pengguna (PRIORITAS UTAMA):\n\"{$caption}\"\n"
-                ."\n⚠️ ATURAN SINTESIS KETERANGAN (DESCRIPTION) CERDAS & PROFESIONAL:"
-                ."\n1. SUMBER DANA: Jika pengguna menyebutkan rekening/dompet/kartu (misal: 'dari bank Jago', 'pakai BCA', 'dari Gopay', 'dari kartu debit', 'tunai'), kamu WAJIB menetapkan `payment_account` ke akun tersebut."
+                ."\n⚠️ ATURAN SINTESIS KETERANGAN (DESCRIPTION) & SUMBER DANA CERDAS:"
+                ."\n1. SUMBER DANA (PRIORITAS MUTLAK): Jika pengguna menyebutkan rekening/dompet/kartu pada caption (misal: 'dari bank Jago', 'pakai BCA', 'dari Gopay', 'pakai gopay', 'dari dana', 'tunai'), kamu WAJIB menetapkan `payment_account` / `deposit_account` ke dompet tersebut. Ini memiliki prioritas MUTLAK di atas teks metode pembayaran yang tertera pada struk fisik. JANGAN PERNAH mengosongkan payment_account atau mengisi 'Kas Tunai' jika caption menyebutkan dompet lain!"
                 ."\n2. FORMULASI KETERANGAN (DESCRIPTION):"
-                ."   - HAPUS / BERSIHKAN frasa metode pembayaran dari caption (seperti 'dari kartu debit', 'pakai bca', 'via jago', 'dari gopay'). Frasa rekening ini TIDAK BOLEH ada di dalam kolom `description` karena sudah ada di Sumber Dana."
+                ."   - HAPUS / BERSIHKAN frasa metode pembayaran dari caption (seperti 'dari kartu debit', 'pakai bca', 'via jago', 'dari gopay', 'pakai gopay'). Frasa rekening ini TIDAK BOLEH ada di dalam kolom `description` karena sudah ada di Sumber Dana."
                 .'   - GABUNGKAN maksud/keperluan caption dengan nama Merchant/Penyedia dari struk/bukti transaksi untuk menghasilkan keterangan yang informatif dan profesional.'
                 ."   - Contoh: Caption 'Beli VPS ke Tencent dari kartu debit' + Struk 'Tencent Cloud InternatiSINGAPORE SG' => `description` = 'Beli VPS Tencent Cloud (Tencent Cloud Singapore)'"
                 ."   - Contoh: Caption 'Makan siang bareng tim pake gopay' + Struk 'RM Padang Sederhana' => `description` = 'Makan Siang Bareng Tim di RM Padang Sederhana'"
@@ -109,6 +110,22 @@ class AiServiceManager
 
         $aiResult = $this->processMessage($combinedPrompt);
         $aiResult['ocr_text'] = $ocrText;
+
+        // Enforce deterministic wallet priority from user caption
+        if (! empty($caption)) {
+            $detectedWallet = app(AccountingService::class)->detectWalletFromText($caption);
+            if ($detectedWallet) {
+                if (isset($aiResult['parameters'])) {
+                    if (array_key_exists('payment_account', $aiResult['parameters']) || ($aiResult['intent'] ?? '') === 'record_expense') {
+                        $aiResult['parameters']['payment_account'] = $detectedWallet->name;
+                        Log::info("Enforced payment_account from caption: {$detectedWallet->name} (caption: '{$caption}')");
+                    } elseif (array_key_exists('deposit_account', $aiResult['parameters']) || ($aiResult['intent'] ?? '') === 'record_income') {
+                        $aiResult['parameters']['deposit_account'] = $detectedWallet->name;
+                        Log::info("Enforced deposit_account from caption: {$detectedWallet->name} (caption: '{$caption}')");
+                    }
+                }
+            }
+        }
 
         return $aiResult;
     }

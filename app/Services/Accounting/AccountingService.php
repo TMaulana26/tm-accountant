@@ -470,24 +470,115 @@ class AccountingService
     }
 
     /**
-     * Find best matching Cash / Bank account by name or keyword.
+     * Find best matching Cash / Bank account by name, code, keyword, or sentence.
      */
-    public function findPaymentAccount(?string $keyword = null): Account
+    public function findPaymentAccount(?string $keyword = null, bool $fallbackToDefault = true): ?Account
     {
         if (empty($keyword)) {
-            return $this->getDefaultPaymentAccount();
+            return $fallbackToDefault ? $this->getDefaultPaymentAccount() : null;
         }
 
         $keyword = trim($keyword);
+        $cleanKeyword = preg_replace('/^(pakai|pake|via|dari|ke|dengan|menggunakan|melalui|lewat|bayar\s+pakai|bayar\s+pake)\s+/iu', '', $keyword);
+        $cleanKeyword = trim($cleanKeyword);
 
-        $account = Account::where('category', AccountCategory::CashAndBank)
-            ->where(function ($q) use ($keyword) {
-                $q->where('name', 'like', "%{$keyword}%")
-                    ->orWhere('code', 'like', "%{$keyword}%");
-            })
-            ->first();
+        $wallets = Account::where('category', AccountCategory::CashAndBank)
+            ->whereNotNull('parent_id')
+            ->where('is_active', true)
+            ->get();
 
-        return $account ?? $this->getDefaultPaymentAccount();
+        if ($wallets->isEmpty()) {
+            return $fallbackToDefault ? $this->getDefaultPaymentAccount() : null;
+        }
+
+        // 1. Exact match on code or name (case-insensitive)
+        foreach ($wallets as $wallet) {
+            if (strcasecmp($wallet->code, $keyword) === 0 || strcasecmp($wallet->name, $keyword) === 0) {
+                return $wallet;
+            }
+            if (! empty($cleanKeyword) && strcasecmp($wallet->name, $cleanKeyword) === 0) {
+                return $wallet;
+            }
+        }
+
+        // 2. Substring match on clean keyword
+        if (! empty($cleanKeyword)) {
+            foreach ($wallets as $wallet) {
+                if (stripos($wallet->name, $cleanKeyword) !== false || stripos($cleanKeyword, $wallet->name) !== false) {
+                    return $wallet;
+                }
+            }
+        }
+
+        // 3. Known Indonesian financial aliases map
+        $aliases = [
+            'gopay' => ['gopay', 'go-pay', 'go pay'],
+            'shopeepay' => ['shopeepay', 'shopee pay', 'shopee'],
+            'dana' => ['dana'],
+            'ovo' => ['ovo'],
+            'jago' => ['jago', 'bank jago'],
+            'bca' => ['bca', 'bank bca', 'klikbca', 'blu', 'bca digital'],
+            'mandiri' => ['mandiri', 'bank mandiri', 'livin'],
+            'bri' => ['bri', 'bank bri', 'brimo'],
+            'bni' => ['bni', 'bank bni', 'wondr'],
+            'bsi' => ['bsi', 'bank bsi'],
+            'seabank' => ['seabank', 'sea bank'],
+            'jenius' => ['jenius', 'btpn'],
+            'tunai' => ['tunai', 'cash', 'uang tunai', 'kas tunai', 'dompet fisik', 'kontan'],
+        ];
+
+        $lowerInput = strtolower($keyword);
+
+        foreach ($wallets as $wallet) {
+            $lowerWalletName = strtolower($wallet->name);
+
+            foreach ($aliases as $key => $patterns) {
+                $walletMatchesAlias = (stripos($lowerWalletName, $key) !== false);
+                if (! $walletMatchesAlias) {
+                    foreach ($patterns as $p) {
+                        if (stripos($lowerWalletName, $p) !== false) {
+                            $walletMatchesAlias = true;
+                            break;
+                        }
+                    }
+                }
+
+                if ($walletMatchesAlias) {
+                    foreach ($patterns as $p) {
+                        if (preg_match('/\b'.preg_quote($p, '/').'\b/iu', $lowerInput)) {
+                            return $wallet;
+                        }
+                    }
+                }
+            }
+        }
+
+        // 4. Token/distinctive word match: check if distinctive word from wallet name is in keyword
+        foreach ($wallets as $wallet) {
+            $stripped = preg_replace('/\b(e-wallet|bank|kas|dompet|digital|fisik)\b/iu', '', $wallet->name);
+            $words = preg_split('/[\s\/\(\)\-]+/', $stripped, -1, PREG_SPLIT_NO_EMPTY);
+
+            foreach ($words as $w) {
+                $w = trim($w);
+                if (mb_strlen($w) >= 3 && preg_match('/\b'.preg_quote($w, '/').'\b/iu', $lowerInput)) {
+                    return $wallet;
+                }
+            }
+        }
+
+        return $fallbackToDefault ? $this->getDefaultPaymentAccount() : null;
+    }
+
+    /**
+     * Detect wallet account mentioned anywhere in a sentence or caption.
+     */
+    public function detectWalletFromText(?string $text): ?Account
+    {
+        if (empty($text)) {
+            return null;
+        }
+
+        return $this->findPaymentAccount($text, fallbackToDefault: false);
     }
 
     /**
@@ -735,7 +826,7 @@ class AccountingService
         $walletName = trim($filters['wallet_name'] ?? '');
         $walletAccount = null;
         if (! empty($walletName)) {
-            $walletAccount = $this->findPaymentAccount($walletName);
+            $walletAccount = $this->findPaymentAccount($walletName, fallbackToDefault: false);
             if ($walletAccount) {
                 $query->whereHas('items', function ($q) use ($walletAccount) {
                     $q->where('account_id', $walletAccount->id);

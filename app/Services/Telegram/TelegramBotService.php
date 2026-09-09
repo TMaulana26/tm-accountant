@@ -366,6 +366,18 @@ class TelegramBotService
             $intent = $aiResult['intent'];
             $params = $aiResult['parameters'];
 
+            // Extra safeguard: If caption explicitly specifies a wallet, guarantee params reflects it
+            if (! empty($caption)) {
+                $captionWallet = $this->accountingService->detectWalletFromText($caption);
+                if ($captionWallet) {
+                    if ($intent === 'record_expense') {
+                        $params['payment_account'] = $captionWallet->name;
+                    } elseif ($intent === 'record_income') {
+                        $params['deposit_account'] = $captionWallet->name;
+                    }
+                }
+            }
+
             $telegramLog->update([
                 'intent' => $intent,
                 'raw_ai_payload' => [

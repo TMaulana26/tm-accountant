@@ -20,7 +20,7 @@ class GeminiVisionService
     {
         $this->apiKey = (string) config('gemini.api_key', '');
         $this->baseUrl = rtrim((string) config('gemini.base_url', 'https://generativelanguage.googleapis.com/v1beta'), '/');
-        $this->model = (string) config('gemini.model', 'gemini-3.7-flash');
+        $this->model = (string) config('gemini.model', 'gemini-3.5-flash-lite');
         $this->timeout = (int) config('gemini.timeout', 30);
     }
 
@@ -71,18 +71,14 @@ PROMPT;
             ],
         ];
 
-        $modelsToTry = array_unique([$this->model, 'gemini-3.1-flash-lite', 'gemini-3.6-flash', 'gemini-3.7-flash', 'gemini-3.5-flash']);
+        $modelsToTry = array_unique([$this->model, 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-3.5-flash', 'gemini-3.6-flash']);
         $lastException = null;
 
         foreach ($modelsToTry as $modelName) {
             try {
                 $endpoint = "{$this->baseUrl}/models/{$modelName}:generateContent?key={$this->apiKey}";
 
-                // Disable deep thinking latency overhead on Gemini 3.7 for near-instant OCR
                 $generationConfig = ['temperature' => 0.1];
-                if (str_contains($modelName, '3.7')) {
-                    $generationConfig['thinkingConfig'] = ['thinkingBudget' => 0];
-                }
 
                 $modelPayload = [
                     'contents' => $payload['contents'],
