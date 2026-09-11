@@ -19,6 +19,14 @@ fi
 # Setup cron job Laravel Scheduler
 echo "* * * * * cd /var/www/html && php artisan schedule:run >> /dev/null 2>&1" | crontab -u www-data -
 
+# Pastikan APP_KEY terpasang sebelum migrasi atau caching
+if [ -f /var/www/html/.env ]; then
+    if ! grep -E -q '^APP_KEY=[a-zA-Z0-9:+/=_]+' /var/www/html/.env; then
+        echo "== APP_KEY belum disetel atau kosong. Meng-generate application key..."
+        php /var/www/html/artisan key:generate --force
+    fi
+fi
+
 # Jalankan optimasi & migrasi database Laravel
 echo "== Menjalankan migrasi database..."
 php /var/www/html/artisan storage:link --force || true
