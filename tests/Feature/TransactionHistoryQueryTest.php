@@ -416,3 +416,109 @@ test('AccountingService::queryTransactions smartly matches category and keywords
     expect($resultKeyword['total_count'])->toBe(2)
         ->and($resultKeyword['total_amount'])->toEqual(33000.0);
 });
+
+test('AccountingService::findOrCreateIncomeAccount resolves receivable account for loan repayments', function () {
+    $receivable = $this->accountingService->findOrCreateIncomeAccount('Piutang Pribadi / Pinjaman Teman');
+
+    expect($receivable->type)->toBe(AccountType::Asset)
+        ->and($receivable->category)->toBe(AccountCategory::AccountsReceivable)
+        ->and($receivable->code)->toBe('1-10101');
+});
+
+test('AccountingService::queryTransactions handles period all without crashing and finds past transactions', function () {
+    // Create a transaction 2 months ago
+    $pastDate = Carbon::now()->subMonths(2);
+    $this->accountingService->createJournalEntry([
+        'date' => $pastDate,
+        'description' => 'Pinjam Uang Teman ke Adit Unsika',
+        'source' => JournalSource::Telegram,
+    ], [
+        ['account_id' => Account::where('code', '1-10101')->firstOrFail()->id, 'debit' => 50000, 'credit' => 0],
+        ['account_id' => $this->cashAccount->id, 'debit' => 0, 'credit' => 50000],
+    ]);
+
+    // Query with period: 'all'
+    $result = $this->accountingService->queryTransactions([
+        'keyword' => 'Adit',
+        'period' => 'all',
+    ]);
+
+    expect($result['total_count'])->toBe(1)
+        ->and($result['period_label'])->toBe('Semua Riwayat (All Time)')
+        ->and($result['start_date'])->toBe('')
+        ->and($result['end_date'])->toBe('')
+        ->and($result['transactions'][0]['description'])->toBe('Pinjam Uang Teman ke Adit Unsika')
+        ->and($result['transactions'][0]['amount'])->toEqual(50000.0)
+        ->and($result['transactions'][0]['type'])->toBe('expense');
+});
+
+test('AccountingService::queryTransactions automatically falls back to all-time when 0 results found in this_month for keyword', function () {
+    // Create a transaction in previous month (August)
+    $pastDate = Carbon::now()->subMonth()->startOfMonth()->addDays(5);
+    $this->accountingService->createJournalEntry([
+        'date' => $pastDate,
+        'description' => 'Teman Pinjam Uang (Rizki Juli Aditia)',
+        'source' => JournalSource::Telegram,
+    ], [
+        ['account_id' => Account::where('code', '1-10101')->firstOrFail()->id, 'debit' => 150000, 'credit' => 0],
+        ['account_id' => $this->cashAccount->id, 'debit' => 0, 'credit' => 150000],
+    ]);
+
+    // Query with default period: 'this_month' (which has 0 results)
+    $result = $this->accountingService->queryTransactions([
+        'keyword' => 'Aditia',
+        'period' => 'this_month',
+    ]);
+
+    expect($result['total_count'])->toBe(1)
+        ->and($result['period_label'])->toBe('Semua Periode (Pencarian Otomatis)')
+        ->and($result['transactions'][0]['description'])->toBe('Teman Pinjam Uang (Rizki Juli Aditia)')
+        ->and($result['transactions'][0]['amount'])->toEqual(150000.0);
+});
+
+test('AccountingService::queryTransactions handles relative start_date without end_date', function () {
+    $now = Carbon::now();
+    $twoWeeksAgo = $now->copy()->subDays(10);
+
+    $this->accountingService->createJournalEntry([
+        'date' => $twoWeeksAgo,
+        'description' => 'Belanja Sayur Pasar',
+        'source' => JournalSource::Telegram,
+    ], [
+        ['account_id' => $this->foodAccount->id, 'debit' => 30000, 'credit' => 0],
+        ['account_id' => $this->cashAccount->id, 'debit' => 0, 'credit' => 30000],
+    ]);
+
+    $result = $this->accountingService->queryTransactions([
+        'start_date' => $now->copy()->subDays(14)->toDateString(),
+        // end_date intentionally omitted
+    ]);
+
+    expect($result['total_count'])->toBeGreaterThanOrEqual(1)
+        ->and(collect($result['transactions'])->pluck('description')->all())->toContain('Belanja Sayur Pasar');
+});
+
+test('AccountingService::queryTransactions properly classifies loan repayment as income', function () {
+    $receivableAccount = Account::where('code', '1-10101')->firstOrFail();
+
+    // Repayment: Debit Cash, Credit Receivable
+    $this->accountingService->createJournalEntry([
+        'date' => Carbon::now(),
+        'description' => 'Pelunasan Piutang dari Adit',
+        'source' => JournalSource::Telegram,
+    ], [
+        ['account_id' => $this->cashAccount->id, 'debit' => 300000, 'credit' => 0],
+        ['account_id' => $receivableAccount->id, 'debit' => 0, 'credit' => 300000],
+    ]);
+
+    $result = $this->accountingService->queryTransactions([
+        'keyword' => 'Pelunasan Piutang',
+        'period' => 'this_month',
+    ]);
+
+    expect($result['total_count'])->toBe(1)
+        ->and($result['transactions'][0]['type'])->toBe('income')
+        ->and($result['transactions'][0]['amount'])->toEqual(300000.0)
+        ->and($result['transactions'][0]['category_name'])->toBe($receivableAccount->name)
+        ->and($result['total_income'])->toEqual(300000.0);
+});

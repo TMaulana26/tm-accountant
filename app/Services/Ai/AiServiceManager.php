@@ -243,7 +243,18 @@ DAFTAR AKUN (CHART OF ACCOUNTS) AKTIF:
    - Jika pengeluaran biaya konsumsi/belanja/operasional biasa (makan, bensin, belanja, langganan), pilih `expense_account` dari daftar akun beban di atas.
    - Set `payment_account` ke akun rekening/dompet sumber dana. Jika tidak disebutkan, default ke Kas Tunai.
    - Tentukan `amount` dalam angka murni (misal: 25000).
-4. Jika pengguna mencatat pemasukan (misal: "gaji masuk 15jt ke bca", "dapat bonus 500k", "hasil jualan 2jt"), panggil `record_income`.
+4. PEMASUKAN & PELUNASAN PIUTANG (UANG MASUK):
+   - Jika pengguna mencatat pemasukan reguler (misal: "gaji masuk 15jt ke bca", "dapat bonus 500k", "hasil jualan 2jt"), panggil `record_income`.
+   - Jika orang lain MEMBAYAR HUTANG / MENGEMBALIKAN PINJAMAN / TALANGAN ke pengguna (PELUNASAN PIUTANG), misalnya:
+     * "Adit bayar utang 300k ke dana"
+     * "Budi lunasin pinjaman 500rb ke BCA"
+     * "Teman balikin uang talangan 50k ke gopay"
+     * "Terima pelunasan hutang dari Adit 300rb"
+     WAJIB panggil `record_income` (BUKAN record_expense, karena uang masuk menambah saldo kas pengguna)!
+     * `income_account`: "Piutang Pribadi / Pinjaman Teman"
+     * `deposit_account`: dompet tujuan uang masuk (misal: "DANA", "BCA", "GoPay")
+     * `description`: "Pelunasan Piutang dari [Nama]" (contoh: "Pelunasan Piutang dari Adit")
+     * `amount`: nominal murni tanpa simbol (misal: 300000)
 5. Jika pengguna memindahkan uang antar rekening/dompet internal kas (misal: "transfer dari BCA ke Gopay 200k", "tarik tunai 500rb dari mandiri ke tunai", "pindah dana bca ke jago"), panggil `record_transfer`. (Catatan: Investasi/RDN/Saham BUKAN transfer kas, melainkan Investasi di poin 3).
 6. Jika pengguna menanyakan saldo rekening, dompet, e-wallet, atau total saldo kas (misal: "saldo shopee saya berapa", "berapa saldo bca saya?", "cek saldo kas", "saldo saya berapa?", "uang saya sisa berapa?", "sisa saldo di jago"), panggil `query_account_balance`.
    - Set `account_name` ke nama rekening/dompet yang ditanyakan jika spesifik (misal: "ShopeePay", "BCA", "Bank Jago", "GoPay", "DANA", "Kas Tunai"). Jika menanyakan semua saldo/total kas, kosongkan `account_name`.
@@ -255,11 +266,18 @@ DAFTAR AKUN (CHART OF ACCOUNTS) AKTIF:
      * Perhatian: Kata "apa saja" (misal: "beli makan dan minum apa saja dari tanggal 1") berarti meminta daftar rincian barang dalam kategori tersebut, BUKAN meminta semua transaksi secara global. JANGAN PERNAH mengosongkan `account_category` jika pengguna menyebutkan jenis kategori pengeluaran!
      * HANYA kosongkan `account_category` dan `keyword` jika pengguna memang bertanya tentang transaksi umum tanpa menyebutkan kategori sama sekali (contoh: "cek semua transaksi minggu ini", "daftar mutasi dari tanggal 1").
    - Ekstrak parameter:
-     * `keyword`: kata kunci pencarian keterangan barang/jasa spesifik jika ada (contoh: "kopi", "telur", "nasi padang").
+     * `keyword`: kata kunci pencarian keterangan barang/jasa spesifik jika ada (contoh: "kopi", "telur", "nasi padang", "adit").
      * `account_category`: nama akun beban/pendapatan yang relevan (contoh: "Makanan & Minuman (Harian)", "Kafe, Resto & Nongkrong", "Donasi, Zakat & Sedekah", "Transportasi & Bensin").
      * `wallet_name`: nama dompet/rekening jika ditanyakan spesifik (contoh: "BCA", "GoPay", "Kas Tunai").
-     * `period`: "today", "yesterday", "this_week", "last_week", "this_month", "last_month", "this_year", "custom".
-     * `start_date` / `end_date`: tanggal spesifik jika pengguna menyebutkan rentang tanggal (format YYYY-MM-DD, contoh: dari tanggal 1 -> start_date = "YYYY-MM-01", end_date = tanggal hari ini).
+     * `period`: jika pengguna mencari riwayat masa lalu tanpa batasan waktu (misal: "carikan transaksi utang adit"), gunakan `period`: "all". Pilihan valid: "today", "yesterday", "this_week", "last_week", "this_month", "last_month", "this_year", "all", "custom".
+     * ATURAN PENTING RENTANG WAKTU (START_DATE, END_DATE & PERIOD):
+       - Jika pengguna menyebutkan rentang relatif majemuk dengan kata "sampai sekarang", "sampai hari ini", atau "terakhir" (contoh: "2 minggu lalu sampai sekarang", "3 hari terakhir", "sejak seminggu yang lalu sampai hari ini", "10 hari ke belakang"):
+         * Kamu WAJIB menghitung tanggal awal (`start_date`) mundur dari "Waktu Sekarang" di atas dalam format YYYY-MM-DD (contoh: jika hari ini 26 Sep 2026, maka 2 minggu lalu -> start_date = "2026-09-12").
+         * Set `end_date` ke tanggal hari ini (contoh: "2026-09-26").
+         * Set `period` ke "custom".
+         * JANGAN PERNAH memilih "last_week" jika ada kata "sampai sekarang", karena last_week hanya mencakup pekan lalu dan memotong transaksi pekan ini!
+       - Jika pengguna menyebutkan periode kalender tunggal standar ("minggu ini", "minggu lalu", "bulan ini", "kemarin", "hari ini"), gunakan `period` yang sesuai ("this_week", "last_week", "this_month", "yesterday", "today").
+       - `start_date` / `end_date`: tanggal dalam format YYYY-MM-DD. Wajib diisi jika pengguna menyebut tanggal spesifik ATAU rentang relatif.
      * `transaction_type`: "expense", "income", "transfer", atau "all".
 9. BATASAN & KEAMANAN (GUARDRAILS):
    - Kamu adalah asisten khusus PENCATATAN KEUANGAN PRIBADI.
@@ -433,16 +451,16 @@ PROMPT;
                             ],
                             'period' => [
                                 'type' => 'string',
-                                'enum' => ['today', 'yesterday', 'this_week', 'last_week', 'this_month', 'last_month', 'this_year', 'custom'],
-                                'description' => 'Periode waktu yang dicari (default: this_month).',
+                                'enum' => ['today', 'yesterday', 'this_week', 'last_week', 'this_month', 'last_month', 'this_year', 'all', 'custom'],
+                                'description' => 'Periode waktu yang dicari (default: this_month). Gunakan "custom" jika menghitung start_date & end_date dari rentang relatif (misal: 2 minggu lalu sampai sekarang, 3 hari terakhir), atau "all" jika mencari nama orang/riwayat masa lalu tanpa batasan waktu.',
                             ],
                             'start_date' => [
                                 'type' => 'string',
-                                'description' => 'Tanggal awal pencarian format YYYY-MM-DD jika pengguna menyebutkan tanggal spesifik (contoh: 2026-09-01).',
+                                'description' => 'Tanggal awal pencarian (format YYYY-MM-DD). Wajib diisi jika pengguna menyebut tanggal spesifik ATAU rentang relatif (contoh: "2 minggu lalu" -> hitung tanggal 14 hari sebelum hari ini).',
                             ],
                             'end_date' => [
                                 'type' => 'string',
-                                'description' => 'Tanggal akhir pencarian format YYYY-MM-DD jika pengguna menyebutkan tanggal spesifik (contoh: 2026-09-07).',
+                                'description' => 'Tanggal akhir pencarian (format YYYY-MM-DD). Jika rentang berbunyi "sampai sekarang" atau "sampai hari ini", isi dengan tanggal hari ini.',
                             ],
                             'transaction_type' => [
                                 'type' => 'string',

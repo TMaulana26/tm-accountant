@@ -503,3 +503,61 @@ test('system prompt dynamically incorporates owner gender and salutation', funct
 
     putenv('APP_OWNER_GENDER'); // Clear env
 });
+
+test('records loan repayment with appropriate header and receivable account', function () {
+    $parent = Account::where('code', '1-10000')->first();
+    Account::firstOrCreate(['code' => '1-10004'], [
+        'name' => 'E-Wallet DANA',
+        'type' => AccountType::Asset,
+        'category' => AccountCategory::CashAndBank,
+        'parent_id' => $parent?->id,
+        'is_active' => true,
+    ]);
+
+    $mockAi = mock(AiServiceManager::class);
+    $mockAi->shouldReceive('processMessage')
+        ->once()
+        ->with('Adit bayar utang 300k ke dana')
+        ->andReturn([
+            'intent' => 'record_income',
+            'parameters' => [
+                'amount' => 300000,
+                'description' => 'Pelunasan Piutang dari Adit',
+                'income_account' => 'Piutang Pribadi / Pinjaman Teman',
+                'deposit_account' => 'DANA',
+            ],
+            'reply_text' => null,
+            'raw_response' => [],
+        ]);
+
+    $this->app->instance(AiServiceManager::class, $mockAi);
+
+    $botService = app(TelegramBotService::class);
+    $botService->handleUpdate([
+        'message' => [
+            'message_id' => 349,
+            'chat_id' => 123456789,
+            'from' => ['id' => 123456789, 'username' => 'owner'],
+            'text' => 'Adit bayar utang 300k ke dana',
+        ],
+    ]);
+
+    expect(JournalEntry::count())->toBe(1);
+
+    $journal = JournalEntry::first();
+    expect($journal->description)->toBe('Pelunasan Piutang dari Adit')
+        ->and($journal->total_debit)->toBe(300000.0);
+
+    // Verify DANA is debited (increased) and Piutang is credited (decreased)
+    $danaItem = $journal->items()->whereHas('account', fn ($q) => $q->where('code', '1-10004'))->first();
+    $piutangItem = $journal->items()->whereHas('account', fn ($q) => $q->where('code', '1-10101'))->first();
+
+    expect((float) $danaItem->debit)->toEqual(300000.0)
+        ->and((float) $piutangItem->credit)->toEqual(300000.0);
+
+    Http::assertSent(function ($request) {
+        return str_contains($request['text'], 'PELUNASAN PIUTANG BERHASIL DICATAT')
+            && str_contains($request['text'], 'Akun Piutang / Aset')
+            && str_contains($request['text'], '1-10101');
+    });
+});

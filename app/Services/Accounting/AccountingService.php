@@ -687,20 +687,44 @@ class AccountingService
     }
 
     /**
-     * Find or dynamically create a Revenue/Income account.
+     * Find or dynamically create a Revenue/Income account (supports AccountsReceivable for loan repayments).
      */
     public function findOrCreateIncomeAccount(string $name): Account
     {
         $name = trim($name);
 
+        // 1. Exact or partial match on Revenue account
         $existing = Account::where('type', AccountType::Revenue)
-            ->where('name', 'like', "%{$name}%")
+            ->where(function ($q) use ($name) {
+                $q->where('name', 'like', "%{$name}%")
+                    ->orWhere('code', $name);
+            })
             ->first();
 
         if ($existing) {
             return $existing;
         }
 
+        // 2. Check if intent implies loan repayment / accounts receivable (Piutang / Talangan / Pinjaman)
+        $lower = strtolower($name);
+        if (str_contains($lower, 'piutang') || str_contains($lower, 'pinjaman teman') || str_contains($lower, 'talangan') || str_contains($lower, 'kasbon')) {
+            $receivableAcc = Account::where('type', AccountType::Asset)
+                ->where('category', AccountCategory::AccountsReceivable)
+                ->where(function ($q) use ($name) {
+                    $q->where('name', 'like', "%{$name}%")
+                        ->orWhere('code', $name);
+                })
+                ->first()
+                ?? Account::where('type', AccountType::Asset)
+                    ->where('category', AccountCategory::AccountsReceivable)
+                    ->first();
+
+            if ($receivableAcc) {
+                return $receivableAcc;
+            }
+        }
+
+        // 3. Fallback: Create new Revenue account
         $parent = Account::where('code', '4-10000')->first() ?? Account::where('type', AccountType::Revenue)->first();
 
         $lastCode = Account::where('type', AccountType::Revenue)
@@ -778,6 +802,11 @@ class AccountingService
             $periodLabel = $startDate->translatedFormat('d M Y').' s/d '.$endDate->translatedFormat('d M Y');
         } else {
             switch ($period) {
+                case 'all':
+                    $startDate = null;
+                    $endDate = null;
+                    $periodLabel = 'Semua Riwayat (All Time)';
+                    break;
                 case 'today':
                     $startDate = $now->copy()->startOfDay();
                     $endDate = $now->copy()->endOfDay();
@@ -818,7 +847,6 @@ class AccountingService
         }
 
         $query = JournalEntry::with(['items.account'])
-            ->whereBetween('date', [$startDate, $endDate])
             ->orderBy('date', 'asc')
             ->orderBy('id', 'asc');
 
@@ -922,11 +950,13 @@ class AccountingService
         $typeFilter = strtolower(trim($filters['transaction_type'] ?? 'all'));
         if ($typeFilter === 'expense') {
             $query->whereHas('items.account', function ($q) {
-                $q->whereIn('type', [AccountType::Expense, AccountType::Liability]);
+                $q->whereIn('type', [AccountType::Expense, AccountType::Liability])
+                    ->orWhereIn('category', [AccountCategory::AccountsReceivable, AccountCategory::OtherCurrentAsset, AccountCategory::FixedAsset]);
             });
         } elseif ($typeFilter === 'income') {
             $query->whereHas('items.account', function ($q) {
-                $q->where('type', AccountType::Revenue);
+                $q->where('type', AccountType::Revenue)
+                    ->orWhere('category', AccountCategory::AccountsReceivable);
             });
         } elseif ($typeFilter === 'transfer') {
             $query->whereDoesntHave('items.account', function ($q) {
@@ -934,7 +964,25 @@ class AccountingService
             });
         }
 
-        $entries = $query->get();
+        $scopedQuery = clone $query;
+        if ($startDate && $endDate) {
+            $scopedQuery->whereBetween('date', [$startDate, $endDate]);
+        } elseif ($startDate) {
+            $scopedQuery->where('date', '>=', $startDate);
+        } elseif ($endDate) {
+            $scopedQuery->where('date', '<=', $endDate);
+        }
+
+        $entries = $scopedQuery->get();
+
+        // Auto-fallback: if 0 results in this_month without explicit start_date and user specified keyword/category
+        if ($entries->isEmpty() && empty($filters['start_date']) && $period === 'this_month' && (! empty($keyword) || ! empty($category))) {
+            $fallbackEntries = $query->get();
+            if ($fallbackEntries->isNotEmpty()) {
+                $entries = $fallbackEntries;
+                $periodLabel = 'Semua Periode (Pencarian Otomatis)';
+            }
+        }
 
         $processedTransactions = [];
         $totalExpense = 0.0;
@@ -942,26 +990,30 @@ class AccountingService
         $totalAmount = 0.0;
 
         foreach ($entries as $entry) {
-            $expenseOrRevenueItem = $entry->items->first(function ($i) {
-                return in_array($i->account?->type, [AccountType::Expense, AccountType::Revenue, AccountType::Liability], true);
+            $nonCashItem = $entry->items->first(function ($i) {
+                return in_array($i->account?->type, [AccountType::Expense, AccountType::Revenue, AccountType::Liability], true)
+                    || in_array($i->account?->category, [AccountCategory::AccountsReceivable, AccountCategory::OtherCurrentAsset, AccountCategory::FixedAsset], true);
             });
 
             $cashItem = $entry->items->first(function ($i) {
                 return $i->account?->category === AccountCategory::CashAndBank;
             });
 
-            if ($expenseOrRevenueItem) {
-                if ($expenseOrRevenueItem->account?->type === AccountType::Revenue) {
+            if ($nonCashItem) {
+                // If Revenue, or credit on Receivable/Asset/Liability/Expense, it represents inflow/income
+                $isIncome = ($nonCashItem->account?->type === AccountType::Revenue) || ($nonCashItem->credit > 0);
+
+                if ($isIncome) {
                     $type = 'income';
-                    $amount = (float) $expenseOrRevenueItem->credit;
-                    $categoryName = $expenseOrRevenueItem->account->name;
+                    $amount = (float) ($nonCashItem->credit > 0 ? $nonCashItem->credit : $nonCashItem->debit);
+                    $categoryName = $nonCashItem->account->name;
                     $wallet = $cashItem?->account?->name ?? 'Kas';
                     $totalIncome += $amount;
                     $totalAmount += $amount;
                 } else {
                     $type = 'expense';
-                    $amount = (float) $expenseOrRevenueItem->debit;
-                    $categoryName = $expenseOrRevenueItem->account->name;
+                    $amount = (float) ($nonCashItem->debit > 0 ? $nonCashItem->debit : $nonCashItem->credit);
+                    $categoryName = $nonCashItem->account->name;
                     $wallet = $cashItem?->account?->name ?? 'Kas';
                     $totalExpense += $amount;
                     $totalAmount += $amount;
@@ -995,8 +1047,8 @@ class AccountingService
 
         return [
             'period_label' => $periodLabel,
-            'start_date' => $startDate->toDateString(),
-            'end_date' => $endDate->toDateString(),
+            'start_date' => $startDate?->toDateString() ?? '',
+            'end_date' => $endDate?->toDateString() ?? '',
             'total_count' => count($processedTransactions),
             'total_amount' => $totalAmount,
             'total_expense' => $totalExpense,

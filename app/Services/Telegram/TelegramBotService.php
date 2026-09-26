@@ -598,10 +598,20 @@ class TelegramBotService
         $formattedAmount = 'Rp '.number_format($amount, 0, ',', '.');
         $formattedDate = $date->translatedFormat('d M Y');
 
-        $text = "🎉 <b>PEMASUKAN BERHASIL DICATAT</b>\n\n"
+        $accountLabel = match ($incomeAccount->type) {
+            AccountType::Asset => 'Akun Piutang / Aset',
+            default => 'Akun Pendapatan',
+        };
+
+        $headerTitle = match ($incomeAccount->type) {
+            AccountType::Asset => '✅ <b>PELUNASAN PIUTANG BERHASIL DICATAT</b>',
+            default => '🎉 <b>PEMASUKAN BERHASIL DICATAT</b>',
+        };
+
+        $text = "{$headerTitle}\n\n"
             ."📝 <b>Keterangan:</b> {$description}\n"
             ."💰 <b>Nominal:</b> <code>{$formattedAmount}</code>\n"
-            ."📁 <b>Akun Pendapatan:</b> [{$incomeAccount->code}] {$incomeAccount->name}\n"
+            ."📁 <b>{$accountLabel}:</b> [{$incomeAccount->code}] {$incomeAccount->name}\n"
             ."🏦 <b>Masuk ke:</b> [{$depositAccount->code}] {$depositAccount->name}\n"
             ."📅 <b>Tanggal:</b> {$formattedDate}\n"
             ."🔖 <b>No. Jurnal:</b> <code>{$journal->entry_number}</code>";
