@@ -279,6 +279,7 @@ DAFTAR AKUN (CHART OF ACCOUNTS) AKTIF:
        - Jika pengguna menyebutkan periode kalender tunggal standar ("minggu ini", "minggu lalu", "bulan ini", "kemarin", "hari ini"), gunakan `period` yang sesuai ("this_week", "last_week", "this_month", "yesterday", "today").
        - `start_date` / `end_date`: tanggal dalam format YYYY-MM-DD. Wajib diisi jika pengguna menyebut tanggal spesifik ATAU rentang relatif.
      * `transaction_type`: "expense", "income", "transfer", atau "all".
+     * `export_format`: "text" atau "excel". Set ke "excel" jika pengguna meminta dokumen/file Excel atau spreadsheet (contoh: "export mutasi bca ke excel", "kirim riwayat pengeluaran format excel", "minta file excel mutasi", "download mutasi"). Default: "text".
 9. BATASAN & KEAMANAN (GUARDRAILS):
    - Kamu adalah asisten khusus PENCATATAN KEUANGAN PRIBADI.
    - Jika pengguna mengirim pesan di luar topik keuangan (misalnya meminta resep makanan, coding/programming, dongeng/cerita, opini politik, gosip, atau pertanyaan non-keuangan lainnya), ATAU jika pesan berupa teks panjang yang tidak memuat transaksi keuangan, JANGAN panggil tool transaksi apapun.
@@ -466,6 +467,11 @@ PROMPT;
                                 'type' => 'string',
                                 'enum' => ['expense', 'income', 'transfer', 'all'],
                                 'description' => 'Jenis transaksi yang dicari (expense untuk pengeluaran/beli barang, income untuk pemasukan, transfer untuk mutasi antar dompet, all untuk semua). Default: all.',
+                            ],
+                            'export_format' => [
+                                'type' => 'string',
+                                'enum' => ['text', 'excel'],
+                                'description' => 'Format output mutasi. Pilih "excel" jika pengguna meminta dokumen/file Excel atau spreadsheet. Default: text.',
                             ],
                         ],
                     ],

@@ -8,9 +8,11 @@ use App\Models\Account;
 use App\Models\JournalEntry;
 use App\Models\TelegramMessage;
 use App\Models\User;
+use App\Services\Accounting\AccountingService;
 use App\Services\Ai\AiServiceManager;
 use App\Services\Telegram\TelegramBotService;
 use Database\Seeders\AccountSeeder;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Http;
 
@@ -559,5 +561,158 @@ test('records loan repayment with appropriate header and receivable account', fu
         return str_contains($request['text'], 'PELUNASAN PIUTANG BERHASIL DICATAT')
             && str_contains($request['text'], 'Akun Piutang / Aset')
             && str_contains($request['text'], '1-10101');
+    });
+});
+
+test('transaction confirmations display wallet balance footer on expense, income, and transfer', function () {
+    $parent = Account::where('code', '1-10000')->first();
+    $cash = Account::where('code', '1-10001')->firstOrFail();
+    $bca = Account::firstOrCreate(['code' => '1-10002'], [
+        'name' => 'Bank BCA',
+        'type' => AccountType::Asset,
+        'category' => AccountCategory::CashAndBank,
+        'parent_id' => $parent?->id,
+        'is_active' => true,
+    ]);
+
+    $food = Account::where('code', '6-10001')->firstOrFail();
+    $salary = Account::where('code', '4-10001')->firstOrFail();
+
+    // 1. Expense
+    $mockAi = mock(AiServiceManager::class);
+    $mockAi->shouldReceive('processMessage')
+        ->with('beli bakso 20k')
+        ->andReturn([
+            'intent' => 'record_expense',
+            'parameters' => [
+                'amount' => 20000,
+                'description' => 'Beli Bakso',
+                'expense_account' => $food->name,
+                'payment_account' => $cash->name,
+            ],
+            'reply_text' => null,
+            'raw_response' => [],
+        ]);
+
+    $this->app->instance(AiServiceManager::class, $mockAi);
+    $botService = app(TelegramBotService::class);
+
+    $botService->handleUpdate([
+        'message' => [
+            'message_id' => 901,
+            'chat_id' => 123456789,
+            'from' => ['id' => 123456789, 'username' => 'owner'],
+            'text' => 'beli bakso 20k',
+        ],
+    ]);
+
+    Http::assertSent(function ($request) {
+        return str_contains($request['text'], 'PENGELUARAN BERHASIL DICATAT')
+            && str_contains($request['text'], 'Sisa Saldo Kas Tunai');
+    });
+
+    // 2. Transfer
+    $mockAi->shouldReceive('processMessage')
+        ->with('transfer dari bca ke kas tunai 50k')
+        ->andReturn([
+            'intent' => 'record_transfer',
+            'parameters' => [
+                'amount' => 50000,
+                'description' => 'Tarik Tunai BCA',
+                'from_account' => 'BCA',
+                'to_account' => 'Kas Tunai',
+            ],
+            'reply_text' => null,
+            'raw_response' => [],
+        ]);
+
+    $botService->handleUpdate([
+        'message' => [
+            'message_id' => 902,
+            'chat_id' => 123456789,
+            'from' => ['id' => 123456789, 'username' => 'owner'],
+            'text' => 'transfer dari bca ke kas tunai 50k',
+        ],
+    ]);
+
+    Http::assertSent(function ($request) {
+        return str_contains($request['text'], 'TRANSFER DANA BERHASIL DICATAT')
+            && str_contains($request['text'], 'Sisa Saldo Bank BCA')
+            && str_contains($request['text'], 'Sisa Saldo Kas Tunai');
+    });
+});
+
+test('query_transactions attaches download excel button and handles export_excel callback', function () {
+    $parent = Account::where('code', '1-10000')->first();
+    $cash = Account::where('code', '1-10001')->firstOrFail();
+    $food = Account::where('code', '6-10001')->firstOrFail();
+
+    // Create 1 transaction
+    app(AccountingService::class)->createJournalEntry([
+        'date' => Carbon::now(),
+        'description' => 'Makan Siang Sate',
+        'source' => JournalSource::Telegram,
+    ], [
+        ['account_id' => $food->id, 'debit' => 35000, 'credit' => 0],
+        ['account_id' => $cash->id, 'debit' => 0, 'credit' => 35000],
+    ]);
+
+    $mockAi = mock(AiServiceManager::class);
+    $mockAi->shouldReceive('processMessage')
+        ->with('cek mutasi bulan ini')
+        ->andReturn([
+            'intent' => 'query_transactions',
+            'parameters' => [
+                'period' => 'this_month',
+            ],
+            'reply_text' => null,
+            'raw_response' => [],
+        ]);
+
+    $this->app->instance(AiServiceManager::class, $mockAi);
+    $botService = app(TelegramBotService::class);
+
+    $botService->handleUpdate([
+        'message' => [
+            'message_id' => 950,
+            'chat_id' => 123456789,
+            'from' => ['id' => 123456789, 'username' => 'owner'],
+            'text' => 'cek mutasi bulan ini',
+        ],
+    ]);
+
+    $exportToken = null;
+    Http::assertSent(function ($request) use (&$exportToken) {
+        if (str_contains($request->url(), 'sendMessage')) {
+            $markup = json_decode($request['reply_markup'] ?? '{}', true);
+            $button = $markup['inline_keyboard'][0][0] ?? [];
+            if (($button['text'] ?? '') === '📥 Download Excel (.xlsx)') {
+                $exportToken = str_replace('export_excel_', '', $button['callback_data']);
+
+                return true;
+            }
+        }
+
+        return false;
+    });
+
+    expect($exportToken)->not->toBeNull();
+
+    // Now test clicking the callback button
+    $botService->handleUpdate([
+        'callback_query' => [
+            'id' => 'cb_export_999',
+            'from' => ['id' => 123456789],
+            'message' => [
+                'message_id' => 951,
+                'chat' => ['id' => 123456789],
+                'text' => 'Mutasi Bulan Ini',
+            ],
+            'data' => "export_excel_{$exportToken}",
+        ],
+    ]);
+
+    Http::assertSent(function ($request) {
+        return str_contains($request->url(), 'sendDocument');
     });
 });

@@ -13,6 +13,7 @@ use App\Models\User;
 use App\Services\Accounting\AccountingService;
 use App\Services\Accounting\FinancialReportService;
 use App\Services\Accounting\ReceiptImageService;
+use App\Services\Accounting\TransactionExportService;
 use App\Services\Ai\AiServiceManager;
 use App\Services\System\EnvironmentService;
 use Carbon\Carbon;
@@ -21,6 +22,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 class TelegramBotService
 {
@@ -34,10 +36,12 @@ class TelegramBotService
         protected AiServiceManager $aiManager,
         protected ReceiptImageService $receiptImageService,
         protected ?EnvironmentService $environmentService = null,
+        protected ?TransactionExportService $transactionExportService = null,
     ) {
         $this->botToken = (string) config('telegram.bot_token', '');
         $this->allowedUserIds = (array) config('telegram.allowed_user_ids', []);
         $this->environmentService = $environmentService ?? app(EnvironmentService::class);
+        $this->transactionExportService = $transactionExportService ?? app(TransactionExportService::class);
     }
 
     /**
@@ -540,6 +544,7 @@ class TelegramBotService
         $formattedDate = $date->translatedFormat('d M Y');
 
         $remainingBalance = $paymentAccount->fresh()->balance;
+        $formattedRemaining = ($remainingBalance < 0 ? '-' : '').'Rp '.number_format(abs($remainingBalance), 0, ',', '.');
 
         $accountLabel = match ($expenseAccount->type) {
             AccountType::Liability => 'Akun Kewajiban (Hutang)',
@@ -563,16 +568,19 @@ class TelegramBotService
             default => '✅ <b>PENGELUARAN BERHASIL DICATAT</b>',
         };
 
+        $cleanPaymentWallet = $this->cleanWalletDisplayName($paymentAccount->name);
+
         $text = "{$headerTitle}\n\n"
             ."📝 <b>Keterangan:</b> {$description}\n"
             ."💰 <b>Nominal:</b> <code>{$formattedAmount}</code>\n"
             ."📁 <b>{$accountLabel}:</b> [{$expenseAccount->code}] {$expenseAccount->name}\n"
             ."💳 <b>Sumber Dana:</b> [{$paymentAccount->code}] {$paymentAccount->name}\n"
             ."📅 <b>Tanggal:</b> {$formattedDate}\n"
-            ."🔖 <b>No. Jurnal:</b> <code>{$journal->entry_number}</code>";
+            ."🔖 <b>No. Jurnal:</b> <code>{$journal->entry_number}</code>\n"
+            ."━━━━━━━━━━━━━━━━━━━━\n"
+            ."💳 <b>Sisa Saldo {$cleanPaymentWallet}:</b> <code>{$formattedRemaining}</code>";
 
         if ($remainingBalance <= 0) {
-            $formattedRemaining = ($remainingBalance < 0 ? '-' : '').'Rp '.number_format(abs($remainingBalance), 0, ',', '.');
             $statusLabel = $remainingBalance < 0 ? '(Defisit / Minus)' : '(Habis / Rp 0)';
             $text .= "\n\n⚠️ <b>PERINGATAN SALDO:</b>\n"
                 ."Sisa saldo <b>{$paymentAccount->name}</b> Anda kini <b>{$formattedRemaining}</b> {$statusLabel}.\n"
@@ -646,13 +654,19 @@ class TelegramBotService
             default => '🎉 <b>PEMASUKAN BERHASIL DICATAT</b>',
         };
 
+        $remainingDepositBalance = $depositAccount->fresh()->balance;
+        $cleanDepositWallet = $this->cleanWalletDisplayName($depositAccount->name);
+        $formattedDepositRemaining = ($remainingDepositBalance < 0 ? '-' : '').'Rp '.number_format(abs($remainingDepositBalance), 0, ',', '.');
+
         $text = "{$headerTitle}\n\n"
             ."📝 <b>Keterangan:</b> {$description}\n"
             ."💰 <b>Nominal:</b> <code>{$formattedAmount}</code>\n"
             ."📁 <b>{$accountLabel}:</b> [{$incomeAccount->code}] {$incomeAccount->name}\n"
             ."🏦 <b>Masuk ke:</b> [{$depositAccount->code}] {$depositAccount->name}\n"
             ."📅 <b>Tanggal:</b> {$formattedDate}\n"
-            ."🔖 <b>No. Jurnal:</b> <code>{$journal->entry_number}</code>";
+            ."🔖 <b>No. Jurnal:</b> <code>{$journal->entry_number}</code>\n"
+            ."━━━━━━━━━━━━━━━━━━━━\n"
+            ."💳 <b>Sisa Saldo {$cleanDepositWallet}:</b> <code>{$formattedDepositRemaining}</code>";
 
         $keyboard = [
             'inline_keyboard' => [
@@ -711,13 +725,23 @@ class TelegramBotService
         $formattedAmount = 'Rp '.number_format($amount, 0, ',', '.');
         $formattedDate = $date->translatedFormat('d M Y');
 
+        $remainingFromBalance = $fromAccount->fresh()->balance;
+        $remainingToBalance = $toAccount->fresh()->balance;
+        $cleanFromWallet = $this->cleanWalletDisplayName($fromAccount->name);
+        $cleanToWallet = $this->cleanWalletDisplayName($toAccount->name);
+        $formattedFromRemaining = ($remainingFromBalance < 0 ? '-' : '').'Rp '.number_format(abs($remainingFromBalance), 0, ',', '.');
+        $formattedToRemaining = ($remainingToBalance < 0 ? '-' : '').'Rp '.number_format(abs($remainingToBalance), 0, ',', '.');
+
         $text = "🔄 <b>TRANSFER DANA BERHASIL DICATAT</b>\n\n"
             ."📝 <b>Keterangan:</b> {$description}\n"
             ."💰 <b>Nominal:</b> <code>{$formattedAmount}</code>\n"
             ."📤 <b>Dari:</b> [{$fromAccount->code}] {$fromAccount->name}\n"
             ."📥 <b>Ke:</b> [{$toAccount->code}] {$toAccount->name}\n"
             ."📅 <b>Tanggal:</b> {$formattedDate}\n"
-            ."🔖 <b>No. Jurnal:</b> <code>{$journal->entry_number}</code>";
+            ."🔖 <b>No. Jurnal:</b> <code>{$journal->entry_number}</code>\n"
+            ."━━━━━━━━━━━━━━━━━━━━\n"
+            ."💳 <b>Sisa Saldo {$cleanFromWallet}:</b> <code>{$formattedFromRemaining}</code>\n"
+            ."💳 <b>Sisa Saldo {$cleanToWallet}:</b> <code>{$formattedToRemaining}</code>";
 
         $keyboard = [
             'inline_keyboard' => [
@@ -936,6 +960,22 @@ class TelegramBotService
             $text .= "💳 <b>Sisa Saldo {$cleanWallet}:</b> <code>{$formattedBal}</code>\n";
         }
 
+        $exportFormat = strtolower(trim($params['export_format'] ?? 'text'));
+        $isExcelRequested = ($exportFormat === 'excel') || (bool) preg_match('/\b(excel|xlsx|spreadsheet)\b/i', $rawText);
+
+        if ($isExcelRequested) {
+            $export = $this->transactionExportService->exportToExcel($result, "LAPORAN {$topic}");
+            $caption = "📊 <b>File Excel Mutasi {$topic}</b>\n"
+                ."🗓️ <i>Periode: {$periodLabel}</i>\n"
+                ."📁 <i>Total: {$count} Transaksi</i>\n"
+                ."💰 <b>{$totalLabel}:</b> <code>{$formattedTotal}</code>";
+
+            $this->sendDocument($chatId, $export['file_path'], $caption);
+            $log->update(['ai_response' => "File Excel terkirim: {$export['filename']}"]);
+
+            return;
+        }
+
         // Group all transactions by date (no limit)
         $grouped = [];
         foreach ($transactions as $t) {
@@ -974,8 +1014,21 @@ class TelegramBotService
             $messages[] = $currentMessage;
         }
 
-        foreach ($messages as $msg) {
-            $this->sendMessage($chatId, $msg);
+        // Generate cache token for inline Excel download button
+        $exportToken = Str::random(12);
+        Cache::put("tg_export_{$exportToken}", $params, now()->addHours(2));
+
+        $downloadButton = [
+            'inline_keyboard' => [
+                [
+                    ['text' => '📥 Download Excel (.xlsx)', 'callback_data' => "export_excel_{$exportToken}"],
+                ],
+            ],
+        ];
+
+        foreach ($messages as $idx => $msg) {
+            $replyMarkup = ($idx === count($messages) - 1) ? $downloadButton : null;
+            $this->sendMessage($chatId, $msg, $replyMarkup);
         }
 
         $log->update(['ai_response' => implode("\n\n---\n\n", $messages)]);
@@ -1044,6 +1097,30 @@ class TelegramBotService
                 $updatedText = $originalText."\n\n❌ <b>[DIBATALKAN]</b> Transaksi <code>{$entryNumber}</code> telah dihapus dari sistem.";
                 $this->editMessageText($chatId, $messageId, $updatedText);
             }
+
+            return;
+        }
+
+        if (str_starts_with($data, 'export_excel_')) {
+            $token = str_replace('export_excel_', '', $data);
+            $cachedParams = Cache::get("tg_export_{$token}");
+
+            if (! $cachedParams) {
+                $this->answerCallbackQuery($id, 'Data ekspor telah kedaluwarsa. Silakan cari mutasi kembali.');
+
+                return;
+            }
+
+            $this->answerCallbackQuery($id, 'Sedang menyiapkan file Excel...');
+
+            $queryResult = $this->accountingService->queryTransactions($cachedParams);
+            $export = $this->transactionExportService->exportToExcel($queryResult);
+
+            $caption = "📊 <b>File Excel Mutasi Transaksi</b>\n"
+                ."🗓️ <i>Periode: {$queryResult['period_label']}</i>\n"
+                ."📁 <i>Total: {$queryResult['total_count']} Transaksi</i>";
+
+            $this->sendDocument($chatId, $export['file_path'], $caption);
 
             return;
         }
@@ -2061,6 +2138,54 @@ HELP;
             unset($payload['parse_mode']);
             $payload['text'] = strip_tags($formattedText);
             $retryResponse = Http::post("https://api.telegram.org/bot{$this->botToken}/sendMessage", $payload);
+            $result = $retryResponse->json() ?? [];
+        }
+
+        return $result;
+    }
+
+    /**
+     * Send a document (e.g. Excel spreadsheet) to Telegram.
+     */
+    public function sendDocument(string|int $chatId, string $filePath, ?string $caption = null, ?array $replyMarkup = null): array
+    {
+        if (empty($this->botToken) || ! file_exists($filePath)) {
+            Log::warning("TELEGRAM_BOT_TOKEN belum disetting atau file tidak ditemukan: {$filePath}");
+
+            return [];
+        }
+
+        $filename = basename($filePath);
+        $payload = [
+            'chat_id' => $chatId,
+        ];
+
+        if (! empty($caption)) {
+            $payload['caption'] = $this->formatMarkdownToTelegramHtml($caption);
+            $payload['parse_mode'] = 'HTML';
+        }
+
+        if ($replyMarkup) {
+            $payload['reply_markup'] = json_encode($replyMarkup);
+        }
+
+        $response = Http::attach(
+            'document',
+            file_get_contents($filePath),
+            $filename
+        )->post("https://api.telegram.org/bot{$this->botToken}/sendDocument", $payload);
+
+        $result = $response->json() ?? [];
+
+        // Fallback: If Telegram failed due to unparseable HTML tags in caption, retry as plain text
+        if (! ($result['ok'] ?? false) && isset($payload['parse_mode']) && str_contains($result['description'] ?? '', "can't parse entities")) {
+            unset($payload['parse_mode']);
+            $payload['caption'] = strip_tags($caption);
+            $retryResponse = Http::attach(
+                'document',
+                file_get_contents($filePath),
+                $filename
+            )->post("https://api.telegram.org/bot{$this->botToken}/sendDocument", $payload);
             $result = $retryResponse->json() ?? [];
         }
 
