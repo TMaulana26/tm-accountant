@@ -18,7 +18,7 @@ return [
     | General Timeout
     |--------------------------------------------------------------------------
     */
-    'timeout' => (int) env('AI_TIMEOUT', 90),
+    'timeout' => (int) env('AI_TIMEOUT', 35),
 
     /*
     |--------------------------------------------------------------------------
@@ -86,6 +86,7 @@ return [
             'api_key' => env('GEMINI_API_KEY', env('AI_API_KEY', '')),
             'model' => env('GEMINI_MODEL', env('AI_MODEL', 'gemini-3.5-flash-lite')),
             'supports_vision' => true,
+            'timeout' => (int) env('GEMINI_TIMEOUT', 30),
             'driver' => 'gemini',
         ],
 

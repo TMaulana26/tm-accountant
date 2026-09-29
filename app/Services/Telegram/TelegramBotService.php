@@ -125,90 +125,100 @@ class TelegramBotService
             }
         }
 
-        if (! $telegramLog) {
-            $telegramLog = TelegramMessage::create([
-                'telegram_message_id' => $messageId,
-                'chat_id' => $chatId,
-                'from_id' => $fromId,
-                'from_username' => $username,
-                'raw_text' => $text,
-                'status' => TelegramMessageStatus::Processed,
-            ]);
-        }
+        // Distributed Atomic Lock untuk mencegah konkurensi retry Telegram
+        $lockKey = ! empty($messageId) ? "tg_msg_lock_{$chatId}_{$messageId}" : null;
+        $lock = $lockKey ? Cache::lock($lockKey, 120) : null;
 
-        // 0. Active Configuration Wizard State check
-        $setupState = Cache::get("tg_setup_state_{$chatId}");
-        if ($setupState) {
-            $this->handleSetupTextResponse($chatId, $text, $messageId, $setupState, $telegramLog);
-
-            return;
-        }
-
-        // Direct command: /set KEY VALUE
-        if (str_starts_with(strtolower($text), '/set ')) {
-            $this->handleDirectSetCommand($chatId, $text, $messageId, $telegramLog);
-
-            return;
-        }
-
-        // Command: /setup or /config or /env or /tmaccountant
-        if (in_array(strtolower($text), ['/setup', 'setup', '/config', 'config', '/env', 'env', '/setting', 'setting', '/tmaccountant', 'tmaccountant'])) {
-            $this->startSetupWizard($chatId, $telegramLog);
-
-            return;
-        }
-
-        // Command: /batal or batal
-        if (in_array(strtolower($text), ['/batal', 'batal', '/cancel', 'cancel'])) {
-            Cache::forget("tg_setup_state_{$chatId}");
-            $this->sendMessage($chatId, '✓ Sesi telah dibatalkan.');
-
-            return;
-        }
-
-        // Command: /start or /help
-        if (in_array(strtolower($text), ['/start', '/help', 'help', 'bantuan'])) {
-            $this->sendHelpMessage($chatId, $telegramLog);
-
-            return;
-        }
-
-        // Check if user has set up at least one wallet
-        if (! $this->hasConfiguredWallets()) {
-            $this->sendWalletsNotConfiguredMessage($chatId, $telegramLog);
-
-            return;
-        }
-
-        // Command: /saldo
-        if (in_array(strtolower($text), ['/saldo', 'saldo', 'kas'])) {
-            $this->sendBalanceSummary($chatId, $telegramLog);
-
-            return;
-        }
-
-        // Command: /model or /ai
-        if (in_array(strtolower($text), ['/model', 'model', '/ai', 'ai', 'cek model', 'info model', '/provider', 'provider'])) {
-            $this->sendModelInfo($chatId, $telegramLog);
-
-            return;
-        }
-
-        // Command: /default or /dompet
-        if (in_array(strtolower($text), ['/default', '/dompet', 'dompet', 'default'])) {
-            $this->sendDefaultWalletPicker($chatId, $telegramLog);
-
-            return;
-        }
-
-        // Guardrail: Length check (> 300 characters without numbers)
-        if (mb_strlen($text) > 300 && ! preg_match('/\d+/', $text)) {
-            $this->sendOutOfTopicGuidance($chatId, $telegramLog);
+        if ($lock && ! $lock->get()) {
+            Log::info("Telegram message {$messageId} in chat {$chatId} is currently being processed by another worker. Skipping duplicate execution.");
 
             return;
         }
 
         try {
+            if (! $telegramLog) {
+                $telegramLog = TelegramMessage::create([
+                    'telegram_message_id' => $messageId,
+                    'chat_id' => $chatId,
+                    'from_id' => $fromId,
+                    'from_username' => $username,
+                    'raw_text' => $text,
+                    'status' => TelegramMessageStatus::Processed,
+                ]);
+            }
+
+            // 0. Active Configuration Wizard State check
+            $setupState = Cache::get("tg_setup_state_{$chatId}");
+            if ($setupState) {
+                $this->handleSetupTextResponse($chatId, $text, $messageId, $setupState, $telegramLog);
+
+                return;
+            }
+
+            // Direct command: /set KEY VALUE
+            if (str_starts_with(strtolower($text), '/set ')) {
+                $this->handleDirectSetCommand($chatId, $text, $messageId, $telegramLog);
+
+                return;
+            }
+
+            // Command: /setup or /config or /env or /tmaccountant
+            if (in_array(strtolower($text), ['/setup', 'setup', '/config', 'config', '/env', 'env', '/setting', 'setting', '/tmaccountant', 'tmaccountant'])) {
+                $this->startSetupWizard($chatId, $telegramLog);
+
+                return;
+            }
+
+            // Command: /batal or batal
+            if (in_array(strtolower($text), ['/batal', 'batal', '/cancel', 'cancel'])) {
+                Cache::forget("tg_setup_state_{$chatId}");
+                $this->sendMessage($chatId, '✓ Sesi telah dibatalkan.');
+
+                return;
+            }
+
+            // Command: /start or /help
+            if (in_array(strtolower($text), ['/start', '/help', 'help', 'bantuan'])) {
+                $this->sendHelpMessage($chatId, $telegramLog);
+
+                return;
+            }
+
+            // Check if user has set up at least one wallet
+            if (! $this->hasConfiguredWallets()) {
+                $this->sendWalletsNotConfiguredMessage($chatId, $telegramLog);
+
+                return;
+            }
+
+            // Command: /saldo
+            if (in_array(strtolower($text), ['/saldo', 'saldo', 'kas'])) {
+                $this->sendBalanceSummary($chatId, $telegramLog);
+
+                return;
+            }
+
+            // Command: /model or /ai
+            if (in_array(strtolower($text), ['/model', 'model', '/ai', 'ai', 'cek model', 'info model', '/provider', 'provider'])) {
+                $this->sendModelInfo($chatId, $telegramLog);
+
+                return;
+            }
+
+            // Command: /default or /dompet
+            if (in_array(strtolower($text), ['/default', '/dompet', 'dompet', 'default'])) {
+                $this->sendDefaultWalletPicker($chatId, $telegramLog);
+
+                return;
+            }
+
+            // Guardrail: Length check (> 300 characters without numbers)
+            if (mb_strlen($text) > 300 && ! preg_match('/\d+/', $text)) {
+                $this->sendOutOfTopicGuidance($chatId, $telegramLog);
+
+                return;
+            }
+
             // Process through AI Provider Manager (Ollama, DeepSeek, OpenAI, etc.)
             $aiResult = $this->aiManager->processMessage($text);
 
@@ -257,13 +267,22 @@ class TelegramBotService
                     break;
             }
         } catch (\Throwable $e) {
+            $fresh = $telegramLog?->fresh();
+            if ($fresh && ($fresh->journal_entry_id !== null || (! empty($fresh->ai_response) && $fresh->status === TelegramMessageStatus::Processed))) {
+                Log::info("Telegram message {$messageId} caught exception in one worker, but was already processed (journal #{$fresh->journal_entry_id}) by another worker. Suppressing error.");
+
+                return;
+            }
+
             Log::error('Telegram Bot processing error: '.$e->getMessage(), ['trace' => $e->getTraceAsString()]);
             $errorMsg = '⚠️ <b>Terjadi Kesalahan:</b> '.htmlspecialchars($e->getMessage());
             $this->sendMessage($chatId, $errorMsg);
-            $telegramLog->update([
+            $telegramLog?->update([
                 'status' => TelegramMessageStatus::Failed,
                 'ai_response' => $e->getMessage(),
             ]);
+        } finally {
+            $lock?->release();
         }
     }
 
@@ -343,21 +362,31 @@ class TelegramBotService
             }
         }
 
-        // Send processing status ONLY on initial message to prevent duplicate status spam
-        if (! $telegramLog) {
-            $this->sendMessage($chatId, '🔍 <i>Sedang membaca struk/screenshot dengan Vision OCR & memproses pembukuan...</i>');
+        // Distributed Atomic Lock untuk mencegah konkurensi retry Telegram
+        $lockKey = ! empty($messageId) ? "tg_img_lock_{$chatId}_{$messageId}" : null;
+        $lock = $lockKey ? Cache::lock($lockKey, 120) : null;
 
-            $telegramLog = TelegramMessage::create([
-                'telegram_message_id' => $messageId,
-                'chat_id' => $chatId,
-                'from_id' => $fromId,
-                'from_username' => $username,
-                'raw_text' => '[FOTO STRUK / SCREENSHOT]'.($caption ? " Caption: {$caption}" : ''),
-                'status' => TelegramMessageStatus::Processed,
-            ]);
+        if ($lock && ! $lock->get()) {
+            Log::info("Telegram image message {$messageId} in chat {$chatId} is currently being processed by another worker. Skipping duplicate execution.");
+
+            return;
         }
 
         try {
+            // Send processing status ONLY on initial message to prevent duplicate status spam
+            if (! $telegramLog) {
+                $this->sendMessage($chatId, '🔍 <i>Sedang membaca struk/screenshot dengan Vision OCR & memproses pembukuan...</i>');
+
+                $telegramLog = TelegramMessage::create([
+                    'telegram_message_id' => $messageId,
+                    'chat_id' => $chatId,
+                    'from_id' => $fromId,
+                    'from_username' => $username,
+                    'raw_text' => '[FOTO STRUK / SCREENSHOT]'.($caption ? " Caption: {$caption}" : ''),
+                    'status' => TelegramMessageStatus::Processed,
+                ]);
+            }
+
             // 1. Download image from Telegram
             $imageBytes = $this->downloadTelegramFile($fileId);
 
@@ -414,13 +443,22 @@ class TelegramBotService
                     break;
             }
         } catch (\Throwable $e) {
+            $fresh = $telegramLog?->fresh();
+            if ($fresh && ($fresh->journal_entry_id !== null || (! empty($fresh->ai_response) && $fresh->status === TelegramMessageStatus::Processed))) {
+                Log::info("Telegram image message {$messageId} caught exception in one worker, but was already processed (journal #{$fresh->journal_entry_id}) by another worker. Suppressing error.");
+
+                return;
+            }
+
             Log::error('Telegram Image OCR error: '.$e->getMessage(), ['trace' => $e->getTraceAsString()]);
             $errorMsg = '⚠️ <b>Gagal Memproses Gambar:</b> '.htmlspecialchars($e->getMessage());
             $this->sendMessage($chatId, $errorMsg);
-            $telegramLog->update([
+            $telegramLog?->update([
                 'status' => TelegramMessageStatus::Failed,
                 'ai_response' => $e->getMessage(),
             ]);
+        } finally {
+            $lock?->release();
         }
     }
 

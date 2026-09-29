@@ -3,6 +3,7 @@
 use App\Enums\AccountCategory;
 use App\Enums\AccountType;
 use App\Enums\JournalSource;
+use App\Enums\TelegramMessageStatus;
 use App\Models\Account;
 use App\Models\JournalEntry;
 use App\Models\TelegramMessage;
@@ -11,6 +12,7 @@ use App\Services\Accounting\AccountingService;
 use App\Services\Ai\AiServiceManager;
 use App\Services\Telegram\TelegramBotService;
 use Database\Seeders\AccountSeeder;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 
 beforeEach(function () {
@@ -192,4 +194,109 @@ test('AccountingService::createSimpleTransaction is idempotent with same referen
     expect($entry1->id)->toBe($entry2->id)
         ->and(JournalEntry::where('reference_number', 'TG-7163641352-88888')->count())->toBe(1)
         ->and($this->kasTunai->fresh()->balance)->toBe(145000.0); // Only deducted once
+});
+
+test('concurrent Telegram text message retry is locked out by atomic lock and skipped', function () {
+    $lock = Cache::lock('tg_msg_lock_7163641352_55555', 120);
+    expect($lock->get())->toBeTrue();
+
+    $botService = app(TelegramBotService::class);
+
+    $payload = [
+        'update_id' => 1001,
+        'message' => [
+            'message_id' => 55555,
+            'from' => ['id' => 7163641352, 'username' => 'tmaulana'],
+            'chat' => ['id' => 7163641352],
+            'text' => 'Beli Tempe Oreg 10rb',
+        ],
+    ];
+
+    // Execution should be skipped because lock is held by another process
+    $botService->handleUpdate($payload);
+
+    expect(TelegramMessage::where('telegram_message_id', 55555)->count())->toBe(0)
+        ->and(JournalEntry::where('source', JournalSource::Telegram)->count())->toBe(0);
+
+    $lock->release();
+});
+
+test('concurrent Telegram image retry is locked out by atomic lock and skipped', function () {
+    $lock = Cache::lock('tg_img_lock_7163641352_66666', 120);
+    expect($lock->get())->toBeTrue();
+
+    $botService = app(TelegramBotService::class);
+
+    $payload = [
+        'update_id' => 1002,
+        'message' => [
+            'message_id' => 66666,
+            'from' => ['id' => 7163641352, 'username' => 'tmaulana'],
+            'chat' => ['id' => 7163641352],
+            'photo' => [
+                ['file_id' => 'photo_123', 'width' => 100, 'height' => 100],
+            ],
+        ],
+    ];
+
+    // Execution should be skipped because lock is held by another worker
+    $botService->handleUpdate($payload);
+
+    expect(TelegramMessage::where('telegram_message_id', 66666)->count())->toBe(0)
+        ->and(JournalEntry::where('source', JournalSource::Telegram)->count())->toBe(0);
+
+    $lock->release();
+});
+
+test('worker exception suppresses error if journal entry was already recorded by another worker', function () {
+    $parentKasBank = Account::where('code', '1-10000')->firstOrFail();
+    $bebanMakan = Account::where('code', '6-10001')->firstOrFail();
+
+    $accountingService = app(AccountingService::class);
+    $journalEntry = $accountingService->createSimpleTransaction(
+        date: now(),
+        type: 'expense',
+        amount: 25000,
+        sourceAccount: $this->kasTunai,
+        destinationAccount: $bebanMakan,
+        description: 'Makan Siang',
+        source: JournalSource::Telegram,
+        referenceNumber: 'TG-7163641352-77777'
+    );
+
+    // Pre-existing TelegramMessage record that was already completed by Worker #2
+    $telegramLog = TelegramMessage::create([
+        'telegram_message_id' => 77777,
+        'chat_id' => '7163641352',
+        'from_id' => '7163641352',
+        'from_username' => 'tmaulana',
+        'raw_text' => 'Makan Siang 25rb',
+        'status' => TelegramMessageStatus::Processed,
+        'journal_entry_id' => $journalEntry->id,
+        'ai_response' => 'Berhasil dicatat',
+    ]);
+
+    // Worker #1 throws exception (e.g. timeout after Worker #2 already finished)
+    $aiMock = Mockery::mock(AiServiceManager::class);
+    $aiMock->shouldReceive('processMessage')
+        ->andThrow(new Exception('cURL error 28: Operation timed out'));
+    app()->instance(AiServiceManager::class, $aiMock);
+
+    $botService = app(TelegramBotService::class);
+
+    $payload = [
+        'update_id' => 1003,
+        'message' => [
+            'message_id' => 77777,
+            'from' => ['id' => 7163641352, 'username' => 'tmaulana'],
+            'chat' => ['id' => 7163641352],
+            'text' => 'Makan Siang 25rb',
+        ],
+    ];
+
+    $botService->handleUpdate($payload);
+
+    // Status MUST remain Processed, NOT overwritten to Failed!
+    expect($telegramLog->fresh()->status)->toBe(TelegramMessageStatus::Processed)
+        ->and($telegramLog->fresh()->journal_entry_id)->toBe($journalEntry->id);
 });

@@ -73,8 +73,16 @@ PROMPT;
 
         $modelsToTry = array_unique([$this->model, 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-3.5-flash', 'gemini-3.6-flash']);
         $lastException = null;
+        $startTime = microtime(true);
+        $maxTotalDuration = $this->timeout;
 
         foreach ($modelsToTry as $modelName) {
+            $elapsed = microtime(true) - $startTime;
+            $remaining = (int) ($maxTotalDuration - $elapsed);
+            if ($remaining < 5) {
+                break;
+            }
+
             try {
                 $endpoint = "{$this->baseUrl}/models/{$modelName}:generateContent?key={$this->apiKey}";
 
@@ -85,7 +93,7 @@ PROMPT;
                     'generationConfig' => $generationConfig,
                 ];
 
-                $response = Http::timeout($this->timeout)
+                $response = Http::timeout($remaining)
                     ->withHeaders(['Content-Type' => 'application/json'])
                     ->post($endpoint, $modelPayload);
 
