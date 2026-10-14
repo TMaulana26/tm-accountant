@@ -26,9 +26,9 @@ class AccountingService
      * @param  array{date?: CarbonInterface|string, description: string, source?: JournalSource|string, reference_number?: ?string, created_by?: ?int}  $entryData
      * @param  array<int, array{account_id: int, debit?: float, credit?: float, memo?: ?string}>  $items
      */
-    public function createJournalEntry(array $entryData, array $items): JournalEntry
+    public function createJournalEntry(array $entryData, array $items, ?User $creator = null): JournalEntry
     {
-        if (empty($items)) {
+        if (count($items) < 2) {
             throw new InvalidArgumentException('Jurnal harus memiliki minimal dua baris item.');
         }
 
@@ -36,8 +36,19 @@ class AccountingService
         $totalCredit = 0.0;
 
         foreach ($items as $item) {
-            $totalDebit += (float) ($item['debit'] ?? 0);
-            $totalCredit += (float) ($item['credit'] ?? 0);
+            $debit = (float) ($item['debit'] ?? 0);
+            $credit = (float) ($item['credit'] ?? 0);
+
+            if ($debit < 0 || $credit < 0) {
+                throw new InvalidArgumentException('Nilai Debit atau Kredit tidak boleh negatif.');
+            }
+
+            if ($debit > 0 && $credit > 0) {
+                throw new InvalidArgumentException('Satu baris jurnal tidak boleh memiliki nilai Debit dan Kredit sekaligus.');
+            }
+
+            $totalDebit += $debit;
+            $totalCredit += $credit;
         }
 
         if (round($totalDebit, 2) !== round($totalCredit, 2)) {
@@ -50,7 +61,7 @@ class AccountingService
             throw new InvalidArgumentException('Nilai transaksi jurnal harus lebih besar dari 0.');
         }
 
-        $entry = DB::transaction(function () use ($entryData, $items) {
+        $entry = DB::transaction(function () use ($entryData, $items, $creator) {
             // Idempotency check: if reference_number is provided, lock and verify whether it was already recorded
             if (! empty($entryData['reference_number'])) {
                 $source = $entryData['source'] ?? JournalSource::Web;
@@ -71,7 +82,7 @@ class AccountingService
                 'description' => $entryData['description'],
                 'source' => $entryData['source'] ?? JournalSource::Web,
                 'reference_number' => $entryData['reference_number'] ?? null,
-                'created_by' => $entryData['created_by'] ?? null,
+                'created_by' => $entryData['created_by'] ?? $creator?->id,
                 'receipt_image' => $entryData['receipt_image'] ?? null,
             ]);
 
@@ -122,6 +133,10 @@ class AccountingService
 
         $sourceAccountId = $sourceAccount instanceof Account ? $sourceAccount->id : $sourceAccount;
         $destAccountId = $destinationAccount instanceof Account ? $destinationAccount->id : $destinationAccount;
+
+        if ($sourceAccountId === $destAccountId) {
+            throw new InvalidArgumentException('Akun sumber dan akun tujuan tidak boleh sama.');
+        }
 
         $type = strtolower($type);
 
@@ -249,7 +264,7 @@ class AccountingService
             'date' => $date,
             'description' => "Saldo Awal: {$account->name}",
             'source' => JournalSource::System,
-            'notes' => 'Pencatatan saldo awal pembukuan dompet',
+            'created_by' => $creator?->id,
         ], [
             [
                 'account_id' => $account->id,
@@ -271,55 +286,58 @@ class AccountingService
      */
     public function adjustBalance(Account $account, float $realBalance, string $reason = 'Penyesuaian Saldo (Opname)', ?Carbon $date = null, ?User $creator = null): ?JournalEntry
     {
-        $currentBalance = $account->balance;
-        $diff = $realBalance - $currentBalance;
+        return DB::transaction(function () use ($account, $realBalance, $reason, $date, $creator): ?JournalEntry {
+            $lockedAccount = Account::whereKey($account->id)->lockForUpdate()->first() ?? $account;
+            $currentBalance = $lockedAccount->balance;
+            $diff = $realBalance - $currentBalance;
 
-        if (abs($diff) < 0.01) {
-            return null; // No adjustment needed
-        }
+            if (abs($diff) < 0.01) {
+                return null; // No adjustment needed
+            }
 
-        activity()
-            ->causedBy($creator)
-            ->performedOn($account)
-            ->useLog('dompet_rekening')
-            ->event('adjustment')
-            ->withProperties([
-                'account_name' => $account->name,
-                'previous_balance' => $currentBalance,
-                'new_balance' => $realBalance,
-                'difference' => $diff,
-                'reason' => $reason,
-            ])
-            ->log("Penyesuaian saldo dompet {$account->name} dari Rp ".number_format($currentBalance, 0, ',', '.').' menjadi Rp '.number_format($realBalance, 0, ',', '.'));
+            activity()
+                ->causedBy($creator)
+                ->performedOn($lockedAccount)
+                ->useLog('dompet_rekening')
+                ->event('adjustment')
+                ->withProperties([
+                    'account_name' => $lockedAccount->name,
+                    'previous_balance' => $currentBalance,
+                    'new_balance' => $realBalance,
+                    'difference' => $diff,
+                    'reason' => $reason,
+                ])
+                ->log("Penyesuaian saldo dompet {$lockedAccount->name} dari Rp ".number_format($currentBalance, 0, ',', '.').' menjadi Rp '.number_format($realBalance, 0, ',', '.'));
 
-        $date = $date ?? now();
+            $date = $date ?? now();
 
-        if ($diff > 0) {
-            // Surplus: Debit Wallet, Credit Other Revenue (Penyesuaian Saldo)
-            $adjustmentAccount = Account::where('code', '4-20001')->first()
-                ?? Account::where('type', AccountType::Revenue)->whereNotNull('parent_id')->first()
-                ?? Account::where('type', AccountType::Revenue)->firstOrFail();
+            if ($diff > 0) {
+                // Surplus: Debit Wallet, Credit Other Revenue (Penyesuaian Saldo)
+                $adjustmentAccount = Account::where('code', '4-20001')->first()
+                    ?? Account::where('type', AccountType::Revenue)->whereNotNull('parent_id')->first()
+                    ?? Account::where('type', AccountType::Revenue)->firstOrFail();
 
-            return $this->createJournalEntry([
-                'date' => $date,
-                'description' => "Penyesuaian Saldo (Surplus): {$account->name} - {$reason}",
-                'source' => JournalSource::Web,
-                'notes' => 'Koreksi saldo dari Rp '.number_format($currentBalance, 0, ',', '.').' menjadi Rp '.number_format($realBalance, 0, ',', '.'),
-            ], [
-                [
-                    'account_id' => $account->id,
-                    'debit' => $diff,
-                    'credit' => 0,
-                    'memo' => 'Penambahan saldo penyesuaian',
-                ],
-                [
-                    'account_id' => $adjustmentAccount->id,
-                    'debit' => 0,
-                    'credit' => $diff,
-                    'memo' => 'Selisih lebih kas & bank',
-                ],
-            ], $creator);
-        } else {
+                return $this->createJournalEntry([
+                    'date' => $date,
+                    'description' => "Penyesuaian Saldo (Surplus): {$lockedAccount->name} - {$reason}",
+                    'source' => JournalSource::Web,
+                    'created_by' => $creator?->id,
+                ], [
+                    [
+                        'account_id' => $lockedAccount->id,
+                        'debit' => $diff,
+                        'credit' => 0,
+                        'memo' => 'Penambahan saldo penyesuaian',
+                    ],
+                    [
+                        'account_id' => $adjustmentAccount->id,
+                        'debit' => 0,
+                        'credit' => $diff,
+                        'memo' => 'Selisih lebih kas & bank',
+                    ],
+                ], $creator);
+            }
+
             // Deficit: Debit Other Expense (Penyesuaian Saldo), Credit Wallet
             $absDiff = abs($diff);
             $adjustmentAccount = Account::where('code', '6-30001')->first()
@@ -328,9 +346,9 @@ class AccountingService
 
             return $this->createJournalEntry([
                 'date' => $date,
-                'description' => "Penyesuaian Saldo (Defisit): {$account->name} - {$reason}",
+                'description' => "Penyesuaian Saldo (Defisit): {$lockedAccount->name} - {$reason}",
                 'source' => JournalSource::Web,
-                'notes' => 'Koreksi saldo dari Rp '.number_format($currentBalance, 0, ',', '.').' menjadi Rp '.number_format($realBalance, 0, ',', '.'),
+                'created_by' => $creator?->id,
             ], [
                 [
                     'account_id' => $adjustmentAccount->id,
@@ -339,13 +357,13 @@ class AccountingService
                     'memo' => 'Selisih kurang kas & bank',
                 ],
                 [
-                    'account_id' => $account->id,
+                    'account_id' => $lockedAccount->id,
                     'debit' => 0,
                     'credit' => $absDiff,
                     'memo' => 'Pengurangan saldo penyesuaian',
                 ],
             ], $creator);
-        }
+        });
     }
 
     /**

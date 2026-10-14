@@ -4,6 +4,7 @@ namespace App\Filament\Resources\Accounts\Schemas;
 
 use App\Enums\AccountCategory;
 use App\Enums\AccountType;
+use App\Models\Account;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
@@ -36,6 +37,7 @@ class AccountForm
                                 ->label('Tipe Akun')
                                 ->options(AccountType::class)
                                 ->required()
+                                ->disabled(fn (?Account $record): bool => $record !== null && ($record->is_system || $record->journalItems()->exists()))
                                 ->live(),
 
                             Select::make('category')

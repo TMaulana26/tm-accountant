@@ -118,3 +118,71 @@ test('calculates accurate and balanced Trial Balance (Neraca Saldo)', function (
         ->and($report['total_debit'])->toBe(65000000.0) // 50jt kas + 13jt bca + 2jt makan = 65jt
         ->and($report['total_credit'])->toBe(65000000.0);
 });
+
+test('historical Balance Sheet preserves as_of_balance on Account models instead of future balance', function () {
+    $kas = Account::where('code', '1-10001')->firstOrFail();
+    $makanan = Account::where('code', '6-10001')->firstOrFail();
+
+    // Add a future transaction next month
+    $this->accountingService->createSimpleTransaction(
+        date: now()->addMonth(),
+        type: 'expense',
+        amount: 5000000,
+        sourceAccount: $kas,
+        destinationAccount: $makanan,
+        description: 'Transaksi Bulan Depan'
+    );
+
+    $report = $this->reportService->getBalanceSheet(now()->endOfMonth());
+    $cashGroup = collect($report['asset_groups'])->firstWhere('name', 'Kas & Bank');
+    $kasInReport = $cashGroup['accounts']->firstWhere('code', '1-10001');
+
+    // As of end of current month, Kas is 49,000,000 (not 44,000,000 after next month's expense)
+    expect($kasInReport->as_of_balance)->toBe(49000000.0)
+        ->and($kasInReport->balance)->toBe(49000000.0)
+        ->and($report['is_balanced'])->toBeTrue();
+});
+
+test('Cash Flow Statement reconciles Receivable, OtherCurrentAsset, and compound journal entries', function () {
+    $bca = Account::where('code', '1-10002')->firstOrFail();
+    $piutang = Account::where('category', AccountCategory::AccountsReceivable)->whereNotNull('parent_id')->firstOrFail();
+    $investasi = Account::where('category', AccountCategory::OtherCurrentAsset)->whereNotNull('parent_id')->firstOrFail();
+    $makanan = Account::where('code', '6-10001')->firstOrFail();
+    $hutang = Account::where('type', AccountType::Liability)->whereNotNull('parent_id')->firstOrFail();
+
+    // 1. Give loan (AccountsReceivable): Rp 500,000
+    $this->accountingService->createSimpleTransaction(
+        date: now(),
+        type: 'expense',
+        amount: 500000,
+        sourceAccount: $bca,
+        destinationAccount: $piutang,
+        description: 'Pinjamkan uang ke teman'
+    );
+
+    // 2. Buy investment (OtherCurrentAsset): Rp 1,000,000
+    $this->accountingService->createSimpleTransaction(
+        date: now(),
+        type: 'expense',
+        amount: 1000000,
+        sourceAccount: $bca,
+        destinationAccount: $investasi,
+        description: 'Beli Reksadana'
+    );
+
+    // 3. Compound entry: pay Expense (Rp 200,000) + pay Liability (Rp 300,000) from BCA (Cr Rp 500,000)
+    $this->accountingService->createJournalEntry([
+        'date' => now(),
+        'description' => 'Bayar makan dan cicilan sekaligus',
+    ], [
+        ['account_id' => $makanan->id, 'debit' => 200000, 'credit' => 0],
+        ['account_id' => $hutang->id, 'debit' => 300000, 'credit' => 0],
+        ['account_id' => $bca->id, 'debit' => 0, 'credit' => 500000],
+    ]);
+
+    $report = $this->reportService->getCashFlowStatement(now()->startOfMonth(), now()->endOfMonth());
+
+    expect($report['beginning_cash'] + $report['net_change_in_cash'])->toBe($report['ending_cash'])
+        ->and($report['investing_outflows'])->toBe(1000000.0)
+        ->and($report['financing_outflows'])->toBe(300000.0);
+});

@@ -4,6 +4,7 @@ namespace App\Filament\Resources\JournalEntries\Tables;
 
 use App\Enums\JournalSource;
 use App\Models\JournalEntry;
+use App\Services\Accounting\AccountingService;
 use Filament\Actions\Action;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteAction;
@@ -16,6 +17,7 @@ use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
 
 class JournalEntriesTable
 {
@@ -89,11 +91,15 @@ class JournalEntriesTable
                     ->modalSubmitAction(false)
                     ->modalCancelActionLabel('Tutup'),
                 EditAction::make(),
-                DeleteAction::make(),
+                DeleteAction::make()
+                    ->using(fn (JournalEntry $record): bool => app(AccountingService::class)->revertJournalEntry($record)),
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
-                    DeleteBulkAction::make(),
+                    DeleteBulkAction::make()
+                        ->using(fn (Collection $records) => $records->each(
+                            fn (JournalEntry $record) => app(AccountingService::class)->revertJournalEntry($record)
+                        )),
                 ]),
             ]);
     }

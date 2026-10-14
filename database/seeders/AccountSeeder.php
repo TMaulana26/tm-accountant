@@ -88,7 +88,7 @@ class AccountSeeder extends Seeder
                 'category' => AccountCategory::Equity,
                 'is_system' => true,
                 'children' => [
-                    ['code' => '3-10001', 'name' => 'Modal Awal', 'type' => AccountType::Equity, 'category' => AccountCategory::Equity],
+                    ['code' => '3-10001', 'name' => 'Modal Awal', 'type' => AccountType::Equity, 'category' => AccountCategory::Equity, 'is_system' => true],
                     ['code' => '3-20001', 'name' => 'Laba Ditahan', 'type' => AccountType::Equity, 'category' => AccountCategory::RetainedEarnings, 'is_system' => true],
                 ],
             ],

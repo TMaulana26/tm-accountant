@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\JournalEntries\Schemas;
 
 use App\Models\Account;
+use Closure;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Repeater;
@@ -70,6 +71,7 @@ class JournalEntryForm
                                 TextInput::make('debit')
                                     ->label('Debit (Rp)')
                                     ->numeric()
+                                    ->minValue(0)
                                     ->default(0)
                                     ->prefix('Rp')
                                     ->live(onBlur: true)
@@ -79,6 +81,7 @@ class JournalEntryForm
                                 TextInput::make('credit')
                                     ->label('Kredit (Rp)')
                                     ->numeric()
+                                    ->minValue(0)
                                     ->default(0)
                                     ->prefix('Rp')
                                     ->live(onBlur: true)
@@ -94,6 +97,58 @@ class JournalEntryForm
                             ->columns(12)
                             ->minItems(2)
                             ->defaultItems(2)
+                            ->rules([
+                                fn (): Closure => function (string $attribute, mixed $value, Closure $fail): void {
+                                    if (! is_array($value) || count($value) < 2) {
+                                        $fail('Jurnal harus memiliki minimal dua baris item.');
+
+                                        return;
+                                    }
+
+                                    $totalDebit = 0.0;
+                                    $totalCredit = 0.0;
+
+                                    foreach ($value as $item) {
+                                        $debit = (float) ($item['debit'] ?? 0);
+                                        $credit = (float) ($item['credit'] ?? 0);
+
+                                        if ($debit < 0 || $credit < 0) {
+                                            $fail('Nilai Debit atau Kredit tidak boleh negatif.');
+
+                                            return;
+                                        }
+
+                                        if ($debit > 0 && $credit > 0) {
+                                            $fail('Satu baris jurnal tidak boleh memiliki nilai Debit dan Kredit sekaligus.');
+
+                                            return;
+                                        }
+
+                                        if ($debit <= 0 && $credit <= 0) {
+                                            $fail('Setiap baris jurnal harus memiliki nilai Debit atau Kredit lebih dari 0.');
+
+                                            return;
+                                        }
+
+                                        $totalDebit += $debit;
+                                        $totalCredit += $credit;
+                                    }
+
+                                    if (round($totalDebit, 2) !== round($totalCredit, 2)) {
+                                        $fail(sprintf(
+                                            'Jurnal tidak seimbang! Total Debit (Rp %s) harus sama dengan Total Kredit (Rp %s).',
+                                            number_format($totalDebit, 2, ',', '.'),
+                                            number_format($totalCredit, 2, ',', '.')
+                                        ));
+
+                                        return;
+                                    }
+
+                                    if ($totalDebit <= 0) {
+                                        $fail('Total nilai transaksi jurnal harus lebih besar dari 0.');
+                                    }
+                                },
+                            ])
                             ->columnSpanFull(),
                     ]),
             ]);

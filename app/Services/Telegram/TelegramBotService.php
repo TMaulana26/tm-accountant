@@ -700,6 +700,17 @@ class TelegramBotService
         $fromAccount = $this->accountingService->findPaymentAccount($fromAccountKeyword);
         $toAccount = $this->accountingService->findPaymentAccount($toAccountKeyword);
 
+        if ($fromAccount && $toAccount && $fromAccount->id === $toAccount->id) {
+            $errorMsg = "⚠️ <b>Transfer Gagal:</b> Rekening asal dan tujuan tidak boleh sama (<b>[{$fromAccount->code}] {$fromAccount->name}</b>). Mohon sebutkan rekening tujuan yang berbeda.";
+            $this->sendMessage($chatId, $errorMsg);
+            $log->update([
+                'ai_response' => $errorMsg,
+                'status' => TelegramMessageStatus::Failed,
+            ]);
+
+            return;
+        }
+
         $referenceNumber = (! empty($log->telegram_message_id) && ! empty($log->chat_id))
             ? "TG-{$log->chat_id}-{$log->telegram_message_id}"
             : null;

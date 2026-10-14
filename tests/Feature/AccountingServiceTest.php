@@ -5,6 +5,7 @@ use App\Enums\AccountType;
 use App\Enums\JournalSource;
 use App\Models\Account;
 use App\Models\JournalEntry;
+use App\Models\User;
 use App\Services\Accounting\AccountingService;
 use Database\Seeders\AccountSeeder;
 
@@ -173,4 +174,31 @@ test('dynamically finds or creates expense account if not existing', function ()
         ->and($newAccount->type)->toBe(AccountType::Expense)
         ->and($newAccount->category)->toBe(AccountCategory::OperatingExpense)
         ->and($newAccount->name)->toBe('Beban Hobi Kamera & Lensa');
+});
+
+test('throws exception when source and destination accounts are identical in createSimpleTransaction', function () {
+    $bca = Account::where('code', '1-10002')->firstOrFail();
+
+    $this->service->createSimpleTransaction(
+        date: now(),
+        type: 'transfer',
+        amount: 100000,
+        sourceAccount: $bca,
+        destinationAccount: $bca,
+        description: 'Self transfer test'
+    );
+})->throws(InvalidArgumentException::class, 'Akun sumber dan akun tujuan tidak boleh sama.');
+
+test('persists created_by user ID in setInitialBalance and adjustBalance', function () {
+    $user = User::factory()->create();
+    $bca = Account::where('code', '1-10002')->firstOrFail();
+
+    $initialEntry = $this->service->setInitialBalance($bca, 1000000, now(), $user);
+    expect($initialEntry)->not->toBeNull()
+        ->and($initialEntry->created_by)->toBe($user->id);
+
+    $adjustEntry = $this->service->adjustBalance($bca, 1250000, 'Opname kas', now(), $user);
+    expect($adjustEntry)->not->toBeNull()
+        ->and($adjustEntry->created_by)->toBe($user->id)
+        ->and($bca->fresh()->balance)->toBe(1250000.0);
 });

@@ -38,7 +38,7 @@
                                     @foreach($group['accounts'] as $acc)
                                         <tr class="border-b border-gray-100 dark:border-white/5">
                                             <td class="py-2 pl-3 text-gray-700 dark:text-gray-300">[{{ $acc->code }}] {{ $acc->name }}</td>
-                                            <td class="py-2 text-right font-mono font-semibold text-gray-950 dark:text-gray-100">Rp {{ number_format($acc->balance, 2, ',', '.') }}</td>
+                                            <td class="py-2 text-right font-mono font-semibold text-gray-950 dark:text-gray-100">Rp {{ number_format($acc->as_of_balance ?? $acc->balance, 2, ',', '.') }}</td>
                                         </tr>
                                     @endforeach
                                     <tr class="border-t border-gray-200 bg-gray-50/80 text-xs font-semibold text-gray-900 dark:border-white/10 dark:bg-white/5 dark:text-gray-200">
@@ -84,7 +84,7 @@
                                             @foreach($group['accounts'] as $acc)
                                                 <tr class="border-b border-gray-100 dark:border-white/5">
                                                     <td class="py-2 pl-3 text-gray-700 dark:text-gray-300">[{{ $acc->code }}] {{ $acc->name }}</td>
-                                                    <td class="py-2 text-right font-mono font-semibold text-gray-950 dark:text-gray-100">Rp {{ number_format($acc->balance, 2, ',', '.') }}</td>
+                                                    <td class="py-2 text-right font-mono font-semibold text-gray-950 dark:text-gray-100">Rp {{ number_format($acc->as_of_balance ?? $acc->balance, 2, ',', '.') }}</td>
                                                 </tr>
                                             @endforeach
                                             <tr class="border-t border-gray-200 bg-gray-50/80 text-xs font-semibold text-gray-900 dark:border-white/10 dark:bg-white/5 dark:text-gray-200">
@@ -121,7 +121,7 @@
                                 @foreach($report['equity_accounts'] as $acc)
                                     <tr class="border-b border-gray-100 dark:border-white/5">
                                         <td class="py-2 pl-3 text-gray-700 dark:text-gray-300">[{{ $acc->code }}] {{ $acc->name }}</td>
-                                        <td class="py-2 text-right font-mono font-semibold text-gray-950 dark:text-gray-100">Rp {{ number_format($acc->balance, 2, ',', '.') }}</td>
+                                        <td class="py-2 text-right font-mono font-semibold text-gray-950 dark:text-gray-100">Rp {{ number_format($acc->as_of_balance ?? $acc->balance, 2, ',', '.') }}</td>
                                     </tr>
                                 @endforeach
                                 <tr class="border-b border-gray-100 dark:border-white/5">

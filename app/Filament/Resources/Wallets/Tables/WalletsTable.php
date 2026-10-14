@@ -202,7 +202,8 @@ class WalletsTable
                         ->url(fn (Account $record): string => '/admin/general-ledger-report'),
 
                     EditAction::make(),
-                    DeleteAction::make(),
+                    DeleteAction::make()
+                        ->hidden(fn (Account $record): bool => ! $record->canBeDeleted()),
                 ]),
             ])
             ->defaultSort('code');

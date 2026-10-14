@@ -76,6 +76,7 @@ class QuickTransaction extends Page
                             TextInput::make('amount')
                                 ->label('Nominal Transaksi')
                                 ->numeric()
+                                ->minValue(0.01)
                                 ->prefix('Rp')
                                 ->required()
                                 ->placeholder('e.g. 50000'),
@@ -133,6 +134,7 @@ class QuickTransaction extends Page
                                         ->get()
                                         ->pluck('formatted_code_and_name', 'id');
                                 })
+                                ->different('source_account_id')
                                 ->searchable()
                                 ->required(),
 
@@ -193,6 +195,7 @@ class QuickTransaction extends Page
                 'source_account_id' => $sourceAccountId,
                 'destination_account_id' => $destAccountId,
                 'description' => '',
+                'receipt_image' => null,
             ]);
         } catch (\Exception $e) {
             Notification::make()

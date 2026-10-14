@@ -160,10 +160,24 @@ class Account extends Model
     }
 
     /**
+     * Determine whether the account can be safely deleted without breaking ledger integrity.
+     */
+    public function canBeDeleted(): bool
+    {
+        return ! $this->is_system
+            && ! $this->journalItems()->exists()
+            && ! $this->children()->exists();
+    }
+
+    /**
      * Compute current balance based on normal balance direction.
      */
     public function getBalanceAttribute(): float
     {
+        if (array_key_exists('as_of_balance', $this->attributes)) {
+            return (float) $this->attributes['as_of_balance'];
+        }
+
         $totals = $this->journalItems()
             ->selectRaw('COALESCE(SUM(debit), 0) as total_debit, COALESCE(SUM(credit), 0) as total_credit')
             ->first();

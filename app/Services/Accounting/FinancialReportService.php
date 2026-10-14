@@ -223,74 +223,63 @@ class FinancialReportService
         $beginningCash = (float) Account::whereIn('id', $cashAccounts)->get()->sum(fn ($acc) => $acc->getBalanceAtDate($start->copy()->subDay()->endOfDay()));
         $endingCash = (float) Account::whereIn('id', $cashAccounts)->get()->sum(fn ($acc) => $acc->getBalanceAtDate($end));
 
-        // Cash Inflows & Outflows by corresponding line items
-        // Operating: Inflows from Revenues, Outflows to Operating Expenses & Payables
-        $operatingInflows = (float) JournalItem::whereIn('account_id', $cashAccounts)
-            ->where('debit', '>', 0)
-            ->whereHas('journalEntry', function (Builder $q) use ($start, $end) {
-                $q->whereBetween('date', [$start->toDateString(), $end->toDateString()]);
-            })
-            ->whereHas('journalEntry.items.account', function (Builder $q) {
-                $q->where('type', AccountType::Revenue->value);
-            })
-            ->sum('debit');
+        $operatingInflows = 0.0;
+        $operatingOutflows = 0.0;
+        $investingInflows = 0.0;
+        $investingOutflows = 0.0;
+        $financingInflows = 0.0;
+        $financingOutflows = 0.0;
 
-        $operatingOutflows = (float) JournalItem::whereIn('account_id', $cashAccounts)
-            ->where('credit', '>', 0)
-            ->whereHas('journalEntry', function (Builder $q) use ($start, $end) {
-                $q->whereBetween('date', [$start->toDateString(), $end->toDateString()]);
-            })
-            ->whereHas('journalEntry.items.account', function (Builder $q) {
-                $q->where('type', AccountType::Expense->value);
-            })
-            ->sum('credit');
+        if (! empty($cashAccounts)) {
+            $startStr = $start->toDateString();
+            $endStr = $end->toDateString();
+
+            // Evaluate non-cash counterpart items in journal entries that touch Cash & Bank accounts.
+            // Because every journal entry is balanced (Sum(Cash Dr - Cr) == Sum(NonCash Cr - Dr)),
+            // classifying each non-cash counterpart line item prevents double-counting on compound
+            // journal entries and includes AccountsReceivable (operating) and OtherCurrentAsset (investing).
+            $counterpartItems = JournalItem::query()
+                ->whereNotIn('account_id', $cashAccounts)
+                ->whereHas('journalEntry', function (Builder $q) use ($startStr, $endStr, $cashAccounts) {
+                    $q->whereDate('date', '>=', $startStr)
+                        ->whereDate('date', '<=', $endStr)
+                        ->whereHas('items', function (Builder $iq) use ($cashAccounts) {
+                            $iq->whereIn('account_id', $cashAccounts)
+                                ->where(function (Builder $vq) {
+                                    $vq->where('debit', '>', 0)->orWhere('credit', '>', 0);
+                                });
+                        });
+                })
+                ->with('account')
+                ->get();
+
+            foreach ($counterpartItems as $item) {
+                $account = $item->account;
+                if (! $account) {
+                    continue;
+                }
+
+                // Counterpart credit means cash inflow (e.g. Revenue Cr, Equity Cr, Receivable Cr);
+                // Counterpart debit means cash outflow (e.g. Expense Dr, FixedAsset Dr, Liability Dr).
+                $inflow = (float) $item->credit;
+                $outflow = (float) $item->debit;
+
+                if (in_array($account->category, [AccountCategory::FixedAsset, AccountCategory::OtherCurrentAsset], true)) {
+                    $investingInflows += $inflow;
+                    $investingOutflows += $outflow;
+                } elseif (in_array($account->type, [AccountType::Liability, AccountType::Equity], true)) {
+                    $financingInflows += $inflow;
+                    $financingOutflows += $outflow;
+                } else {
+                    // Operating: Revenue, Expense, CostOfGoodsSold, AccountsReceivable, Inventory
+                    $operatingInflows += $inflow;
+                    $operatingOutflows += $outflow;
+                }
+            }
+        }
 
         $netOperatingCashflow = $operatingInflows - $operatingOutflows;
-
-        // Investing: Fixed Assets
-        $investingInflows = (float) JournalItem::whereIn('account_id', $cashAccounts)
-            ->where('debit', '>', 0)
-            ->whereHas('journalEntry', function (Builder $q) use ($start, $end) {
-                $q->whereBetween('date', [$start->toDateString(), $end->toDateString()]);
-            })
-            ->whereHas('journalEntry.items.account', function (Builder $q) {
-                $q->where('category', AccountCategory::FixedAsset->value);
-            })
-            ->sum('debit');
-
-        $investingOutflows = (float) JournalItem::whereIn('account_id', $cashAccounts)
-            ->where('credit', '>', 0)
-            ->whereHas('journalEntry', function (Builder $q) use ($start, $end) {
-                $q->whereBetween('date', [$start->toDateString(), $end->toDateString()]);
-            })
-            ->whereHas('journalEntry.items.account', function (Builder $q) {
-                $q->where('category', AccountCategory::FixedAsset->value);
-            })
-            ->sum('credit');
-
         $netInvestingCashflow = $investingInflows - $investingOutflows;
-
-        // Financing: Capital injections, Loans, Drawings
-        $financingInflows = (float) JournalItem::whereIn('account_id', $cashAccounts)
-            ->where('debit', '>', 0)
-            ->whereHas('journalEntry', function (Builder $q) use ($start, $end) {
-                $q->whereBetween('date', [$start->toDateString(), $end->toDateString()]);
-            })
-            ->whereHas('journalEntry.items.account', function (Builder $q) {
-                $q->whereIn('type', [AccountType::Equity->value, AccountType::Liability->value]);
-            })
-            ->sum('debit');
-
-        $financingOutflows = (float) JournalItem::whereIn('account_id', $cashAccounts)
-            ->where('credit', '>', 0)
-            ->whereHas('journalEntry', function (Builder $q) use ($start, $end) {
-                $q->whereBetween('date', [$start->toDateString(), $end->toDateString()]);
-            })
-            ->whereHas('journalEntry.items.account', function (Builder $q) {
-                $q->whereIn('type', [AccountType::Equity->value, AccountType::Liability->value]);
-            })
-            ->sum('credit');
-
         $netFinancingCashflow = $financingInflows - $financingOutflows;
         $netChangeInCash = $netOperatingCashflow + $netInvestingCashflow + $netFinancingCashflow;
 
@@ -323,13 +312,17 @@ class FinancialReportService
 
         $beginningBalance = $acc->getBalanceAtDate($start->copy()->subDay()->endOfDay());
 
-        $items = JournalItem::where('account_id', $acc->id)
-            ->whereHas('journalEntry', function (Builder $q) use ($start, $end) {
-                $q->whereBetween('date', [$start->toDateString(), $end->toDateString()]);
-            })
+        $items = JournalItem::query()
+            ->select('journal_items.*')
+            ->join('journal_entries', 'journal_entries.id', '=', 'journal_items.journal_entry_id')
+            ->where('journal_items.account_id', $acc->id)
+            ->whereDate('journal_entries.date', '>=', $start->toDateString())
+            ->whereDate('journal_entries.date', '<=', $end->toDateString())
+            ->orderBy('journal_entries.date')
+            ->orderBy('journal_entries.id')
+            ->orderBy('journal_items.id')
             ->with(['journalEntry'])
-            ->get()
-            ->sortBy(fn ($item) => $item->journalEntry->date->format('Y-m-d').'_'.$item->journalEntry->id);
+            ->get();
 
         $runningBalance = $beginningBalance;
         $transactions = [];
