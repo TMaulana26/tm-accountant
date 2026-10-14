@@ -248,11 +248,11 @@ class TransactionExportService
 
             $cells = [
                 Cell::fromValue($rowNumber, $cStyle),
-                Cell::fromValue($item['date'], $cStyle),
-                Cell::fromValue($item['entry_number'], $cStyle),
-                Cell::fromValue($item['description'], $lStyle),
-                Cell::fromValue($item['category_name'], $lStyle),
-                Cell::fromValue($item['wallet_name'], $lStyle),
+                Cell::fromValue($this->sanitizeFormulaString((string) $item['date']), $cStyle),
+                Cell::fromValue($this->sanitizeFormulaString((string) $item['entry_number']), $cStyle),
+                Cell::fromValue($this->sanitizeFormulaString((string) $item['description']), $lStyle),
+                Cell::fromValue($this->sanitizeFormulaString((string) $item['category_name']), $lStyle),
+                Cell::fromValue($this->sanitizeFormulaString((string) $item['wallet_name']), $lStyle),
                 Cell::fromValue($income, $nStyle),
                 Cell::fromValue($expense, $nStyle),
             ];
@@ -295,5 +295,17 @@ class TransactionExportService
             'file_path' => $filePath,
             'filename' => $filename,
         ];
+    }
+
+    /**
+     * Prevent CSV / Spreadsheet Formula Injection (CWE-1236) by prefixing dangerous leading characters.
+     */
+    public function sanitizeFormulaString(string $value): string
+    {
+        if ($value !== '' && in_array($value[0], ['=', '+', '-', '@', "\t", "\r"], true)) {
+            return "'".$value;
+        }
+
+        return $value;
     }
 }

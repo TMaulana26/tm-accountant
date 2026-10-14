@@ -13,6 +13,10 @@ return [
     */
     'default' => env('AI_PROVIDER', 'deepseek'),
 
+    'model' => env('AI_MODEL'),
+
+    'base_url' => env('AI_BASE_URL'),
+
     /*
     |--------------------------------------------------------------------------
     | General Timeout

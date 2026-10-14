@@ -48,7 +48,8 @@ class IncomeExpenseChartWidget extends ChartWidget
             // Income in this month (Credit - Debit on revenue accounts)
             $revTotals = JournalItem::whereIn('account_id', $revenueAccountIds)
                 ->whereHas('journalEntry', function (Builder $q) use ($startOfMonth, $endOfMonth) {
-                    $q->whereBetween('date', [$startOfMonth, $endOfMonth]);
+                    $q->whereDate('date', '>=', $startOfMonth)
+                        ->whereDate('date', '<=', $endOfMonth);
                 })
                 ->selectRaw('COALESCE(SUM(credit), 0) - COALESCE(SUM(debit), 0) as total')
                 ->value('total') ?? 0;
@@ -56,7 +57,8 @@ class IncomeExpenseChartWidget extends ChartWidget
             // Expense in this month (Debit - Credit on expense accounts)
             $expTotals = JournalItem::whereIn('account_id', $expenseAccountIds)
                 ->whereHas('journalEntry', function (Builder $q) use ($startOfMonth, $endOfMonth) {
-                    $q->whereBetween('date', [$startOfMonth, $endOfMonth]);
+                    $q->whereDate('date', '>=', $startOfMonth)
+                        ->whereDate('date', '<=', $endOfMonth);
                 })
                 ->selectRaw('COALESCE(SUM(debit), 0) - COALESCE(SUM(credit), 0) as total')
                 ->value('total') ?? 0;

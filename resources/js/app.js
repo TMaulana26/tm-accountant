@@ -33,7 +33,6 @@ function registerEchoListeners() {
             window.Livewire.dispatch('refresh-transactions');
             window.Livewire.dispatch('refresh-wallets');
             window.Livewire.dispatch('refresh-reports');
-            window.Livewire.dispatch('echo:accounting,TransactionRecorded', e);
         }
     });
 
@@ -54,7 +53,6 @@ function registerEchoListeners() {
             window.Livewire.dispatch('refresh-transactions');
             window.Livewire.dispatch('refresh-wallets');
             window.Livewire.dispatch('refresh-reports');
-            window.Livewire.dispatch('echo:accounting,TransactionReverted', e);
         }
     });
 
@@ -64,7 +62,6 @@ function registerEchoListeners() {
 
         if (window.Livewire) {
             window.Livewire.dispatch('refresh-wallets');
-            window.Livewire.dispatch('echo:accounting,WalletBalanceUpdated', e);
         }
     });
 
@@ -74,7 +71,6 @@ function registerEchoListeners() {
 
         if (window.Livewire) {
             window.Livewire.dispatch('refresh-telegram-messages');
-            window.Livewire.dispatch('echo:accounting,TelegramMessageLogged', e);
         }
     });
 }

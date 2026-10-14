@@ -75,7 +75,8 @@ class JournalEntry extends Model
         $prefix = 'JE-'.$date->format('Ym').'-';
 
         $lastEntry = static::where('entry_number', 'like', "{$prefix}%")
-            ->orderByDesc('id')
+            ->orderByDesc('entry_number')
+            ->lockForUpdate()
             ->first();
 
         if ($lastEntry && preg_match('/-(\d+)$/', $lastEntry->entry_number, $matches)) {
@@ -104,11 +105,19 @@ class JournalEntry extends Model
 
     public function getTotalDebitAttribute(): float
     {
+        if (array_key_exists('items_sum_debit', $this->attributes)) {
+            return (float) ($this->attributes['items_sum_debit'] ?? 0);
+        }
+
         return (float) $this->items->sum('debit');
     }
 
     public function getTotalCreditAttribute(): float
     {
+        if (array_key_exists('items_sum_credit', $this->attributes)) {
+            return (float) ($this->attributes['items_sum_credit'] ?? 0);
+        }
+
         return (float) $this->items->sum('credit');
     }
 

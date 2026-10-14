@@ -2206,6 +2206,10 @@ HELP;
             $result = $retryResponse->json() ?? [];
         }
 
+        if (str_contains(str_replace('\\', '/', $filePath), '/exports/') && is_file($filePath)) {
+            @unlink($filePath);
+        }
+
         return $result;
     }
 

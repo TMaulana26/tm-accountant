@@ -154,7 +154,8 @@ class TelegramChatHistoryPage extends Page
     {
         $query = TelegramMessage::query()
             ->with(['journalEntry'])
-            ->orderBy('created_at', 'asc');
+            ->orderByDesc('created_at')
+            ->orderByDesc('id');
 
         $intent = $this->data['intent'] ?? 'all';
         if ($intent && $intent !== 'all') {
@@ -185,7 +186,11 @@ class TelegramChatHistoryPage extends Page
             $query->whereDate('created_at', '<=', Carbon::parse($endDate)->endOfDay());
         }
 
-        return $query->get()->groupBy(fn ($item) => $item->created_at->format('Y-m-d'));
+        return $query->limit(200)
+            ->get()
+            ->reverse()
+            ->values()
+            ->groupBy(fn ($item) => $item->created_at->format('Y-m-d'));
     }
 
     public function formatChatResponse(?string $text): string

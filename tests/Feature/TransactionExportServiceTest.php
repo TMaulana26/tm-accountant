@@ -100,3 +100,11 @@ test('TransactionExportService includes running balance when exporting single wa
         unlink($export['file_path']);
     }
 });
+
+test('TransactionExportService sanitizes spreadsheet formula injection characters', function () {
+    expect($this->exportService->sanitizeFormulaString('=CMD|\' /C calc\'!A0'))->toBe("'=CMD|' /C calc'!A0")
+        ->and($this->exportService->sanitizeFormulaString('+SUM(A1:A10)'))->toBe("'+SUM(A1:A10)")
+        ->and($this->exportService->sanitizeFormulaString('-100+200'))->toBe("'-100+200")
+        ->and($this->exportService->sanitizeFormulaString('@SUM(1,2)'))->toBe("'@SUM(1,2)")
+        ->and($this->exportService->sanitizeFormulaString('Makan Siang Normal'))->toBe('Makan Siang Normal');
+});

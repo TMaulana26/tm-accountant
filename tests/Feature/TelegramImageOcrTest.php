@@ -12,8 +12,10 @@ use App\Services\Telegram\TelegramBotService;
 use Database\Seeders\AccountSeeder;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
 
 beforeEach(function () {
+    Storage::fake('public');
     $this->seed(AccountSeeder::class);
     $parent = Account::where('code', '1-10000')->first();
     Account::firstOrCreate(['code' => '1-10001'], [

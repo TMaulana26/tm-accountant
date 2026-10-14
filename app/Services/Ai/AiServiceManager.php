@@ -136,8 +136,8 @@ class AiServiceManager
      */
     public function getOwnerName(?string $fallback = null): string
     {
-        if ($envName = env('APP_OWNER_NAME', env('OWNER_NAME'))) {
-            return trim($envName, '"\'');
+        if ($envName = config('app.owner_name')) {
+            return trim((string) $envName, '"\'');
         }
 
         // Check if there is a custom (non-default 'Admin') user
@@ -162,7 +162,7 @@ class AiServiceManager
      */
     public function getOwnerGender(): string
     {
-        $raw = strtolower(trim((string) env('APP_OWNER_GENDER', env('OWNER_GENDER', 'laki-laki'))));
+        $raw = strtolower(trim((string) config('app.owner_gender', 'laki-laki')));
 
         if (in_array($raw, ['perempuan', 'female', 'wanita', 'teh', 'teteh'], true)) {
             return 'perempuan';
@@ -501,8 +501,8 @@ PROMPT;
             default => ucfirst($providerName),
         };
 
-        $model = $providerConfig['model'] ?? env('AI_MODEL', 'Unknown Model');
-        $baseUrl = $providerConfig['base_url'] ?? env('AI_BASE_URL', '-');
+        $model = $providerConfig['model'] ?? config('ai.model', 'Unknown Model') ?: 'Unknown Model';
+        $baseUrl = $providerConfig['base_url'] ?? config('ai.base_url', '-') ?: '-';
         $timeout = (int) ($providerConfig['timeout'] ?? config('ai.timeout', 90));
         $supportsVision = (bool) ($providerConfig['supports_vision'] ?? false);
         $ocrMode = config('ai.ocr_mode', 'gemini');

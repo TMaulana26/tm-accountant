@@ -157,8 +157,19 @@ class FinancialReportService
         $rawEquityTotal = $equitySum + $retainedSum;
 
         // Current period profit/loss (all revenues minus all expenses up to asOf)
-        $allRevenues = (float) Account::where('type', AccountType::Revenue->value)->whereNotNull('parent_id')->get()->sum(fn ($acc) => $acc->getBalanceAtDate($asOf));
-        $allExpenses = (float) Account::where('type', AccountType::Expense->value)->whereNotNull('parent_id')->get()->sum(fn ($acc) => $acc->getBalanceAtDate($asOf));
+        $asOfStr = $asOf->toDateString();
+        $allRevenues = (float) Account::where('type', AccountType::Revenue->value)
+            ->whereNotNull('parent_id')
+            ->withSum(['journalItems as as_of_debit' => fn ($q) => $q->whereHas('journalEntry', fn ($je) => $je->whereDate('date', '<=', $asOfStr))], 'debit')
+            ->withSum(['journalItems as as_of_credit' => fn ($q) => $q->whereHas('journalEntry', fn ($je) => $je->whereDate('date', '<=', $asOfStr))], 'credit')
+            ->get()
+            ->sum(fn ($acc) => (float) ($acc->as_of_credit ?? 0) - (float) ($acc->as_of_debit ?? 0));
+        $allExpenses = (float) Account::where('type', AccountType::Expense->value)
+            ->whereNotNull('parent_id')
+            ->withSum(['journalItems as as_of_debit' => fn ($q) => $q->whereHas('journalEntry', fn ($je) => $je->whereDate('date', '<=', $asOfStr))], 'debit')
+            ->withSum(['journalItems as as_of_credit' => fn ($q) => $q->whereHas('journalEntry', fn ($je) => $je->whereDate('date', '<=', $asOfStr))], 'credit')
+            ->get()
+            ->sum(fn ($acc) => (float) ($acc->as_of_debit ?? 0) - (float) ($acc->as_of_credit ?? 0));
         $currentPeriodNetProfit = $allRevenues - $allExpenses;
 
         $totalEquity = $rawEquityTotal + $currentPeriodNetProfit;
@@ -364,9 +375,12 @@ class FinancialReportService
     public function getTrialBalance(CarbonInterface|string|null $asOfDate = null): array
     {
         $asOf = $asOfDate ? (is_string($asOfDate) ? Carbon::parse($asOfDate)->endOfDay() : $asOfDate->copy()->endOfDay()) : now()->endOfDay();
+        $asOfStr = $asOf->toDateString();
 
         $accounts = Account::where('is_active', true)
             ->whereNotNull('parent_id') // Leaf accounts
+            ->withSum(['journalItems as as_of_debit' => fn ($q) => $q->whereHas('journalEntry', fn ($je) => $je->whereDate('date', '<=', $asOfStr))], 'debit')
+            ->withSum(['journalItems as as_of_credit' => fn ($q) => $q->whereHas('journalEntry', fn ($je) => $je->whereDate('date', '<=', $asOfStr))], 'credit')
             ->orderBy('code')
             ->get();
 
@@ -375,7 +389,9 @@ class FinancialReportService
         $totalCredit = 0.0;
 
         foreach ($accounts as $account) {
-            $balance = $account->getBalanceAtDate($asOf);
+            $debitSum = (float) ($account->as_of_debit ?? 0);
+            $creditSum = (float) ($account->as_of_credit ?? 0);
+            $balance = $account->type->isDebitNormal() ? ($debitSum - $creditSum) : ($creditSum - $debitSum);
 
             if (abs($balance) < 0.001) {
                 continue; // Skip zero-balance accounts
@@ -424,14 +440,20 @@ class FinancialReportService
      */
     protected function getAccountsWithMovement(AccountType $type, AccountCategory $category, CarbonInterface $startDate, CarbonInterface $endDate): Collection
     {
+        $startStr = $startDate->toDateString();
+        $endStr = $endDate->toDateString();
+
         return Account::where('type', $type->value)
             ->where('category', $category->value)
             ->whereNotNull('parent_id')
+            ->withSum(['journalItems as period_debit' => fn ($q) => $q->whereHas('journalEntry', fn ($je) => $je->whereDate('date', '>=', $startStr)->whereDate('date', '<=', $endStr))], 'debit')
+            ->withSum(['journalItems as period_credit' => fn ($q) => $q->whereHas('journalEntry', fn ($je) => $je->whereDate('date', '>=', $startStr)->whereDate('date', '<=', $endStr))], 'credit')
             ->orderBy('code')
             ->get()
-            ->map(function (Account $account) use ($startDate, $endDate) {
-                $movement = $account->getMovementBetween($startDate, $endDate);
-                $account->period_balance = $movement;
+            ->map(function (Account $account) {
+                $debit = (float) ($account->period_debit ?? 0);
+                $credit = (float) ($account->period_credit ?? 0);
+                $account->period_balance = $account->type->isDebitNormal() ? ($debit - $credit) : ($credit - $debit);
 
                 return $account;
             })
@@ -444,13 +466,19 @@ class FinancialReportService
      */
     protected function getAccountsWithBalanceAsOf(AccountType $type, AccountCategory $category, CarbonInterface $asOfDate): Collection
     {
+        $asOfStr = $asOfDate->toDateString();
+
         return Account::where('type', $type->value)
             ->where('category', $category->value)
             ->whereNotNull('parent_id')
+            ->withSum(['journalItems as as_of_debit' => fn ($q) => $q->whereHas('journalEntry', fn ($je) => $je->whereDate('date', '<=', $asOfStr))], 'debit')
+            ->withSum(['journalItems as as_of_credit' => fn ($q) => $q->whereHas('journalEntry', fn ($je) => $je->whereDate('date', '<=', $asOfStr))], 'credit')
             ->orderBy('code')
             ->get()
-            ->map(function (Account $account) use ($asOfDate) {
-                $bal = $account->getBalanceAtDate($asOfDate);
+            ->map(function (Account $account) {
+                $debit = (float) ($account->as_of_debit ?? 0);
+                $credit = (float) ($account->as_of_credit ?? 0);
+                $bal = $account->type->isDebitNormal() ? ($debit - $credit) : ($credit - $debit);
                 $account->as_of_balance = $bal;
                 $account->balance = $bal;
 

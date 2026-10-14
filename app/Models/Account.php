@@ -178,6 +178,16 @@ class Account extends Model
             return (float) $this->attributes['as_of_balance'];
         }
 
+        if (
+            array_key_exists('journal_items_sum_debit', $this->attributes)
+            && array_key_exists('journal_items_sum_credit', $this->attributes)
+        ) {
+            $debit = (float) ($this->attributes['journal_items_sum_debit'] ?? 0);
+            $credit = (float) ($this->attributes['journal_items_sum_credit'] ?? 0);
+
+            return $this->type->isDebitNormal() ? ($debit - $credit) : ($credit - $debit);
+        }
+
         $totals = $this->journalItems()
             ->selectRaw('COALESCE(SUM(debit), 0) as total_debit, COALESCE(SUM(credit), 0) as total_credit')
             ->first();

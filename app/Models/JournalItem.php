@@ -5,10 +5,22 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Spatie\Activitylog\Models\Concerns\LogsActivity;
+use Spatie\Activitylog\Support\LogOptions;
 
 class JournalItem extends Model
 {
     use HasFactory;
+    use LogsActivity;
+
+    public function getActivitylogOptions(): LogOptions
+    {
+        return LogOptions::defaults()
+            ->logOnly(['journal_entry_id', 'account_id', 'debit', 'credit', 'memo'])
+            ->logOnlyDirty()
+            ->dontLogEmptyChanges()
+            ->useLogName('item_jurnal');
+    }
 
     protected $fillable = [
         'journal_entry_id',
@@ -21,8 +33,8 @@ class JournalItem extends Model
     protected function casts(): array
     {
         return [
-            'debit' => 'float',
-            'credit' => 'float',
+            'debit' => 'decimal:2',
+            'credit' => 'decimal:2',
         ];
     }
 

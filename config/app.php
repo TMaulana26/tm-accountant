@@ -15,6 +15,10 @@ return [
 
     'name' => env('APP_NAME', 'Laravel'),
 
+    'owner_name' => env('APP_OWNER_NAME', env('OWNER_NAME')),
+
+    'owner_gender' => env('APP_OWNER_GENDER', env('OWNER_GENDER', 'laki-laki')),
+
     /*
     |--------------------------------------------------------------------------
     | Application Environment

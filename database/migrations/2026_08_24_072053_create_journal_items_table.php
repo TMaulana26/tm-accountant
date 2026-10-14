@@ -20,6 +20,7 @@ return new class extends Migration
             $table->string('memo')->nullable();
             $table->timestamps();
 
+            $table->index('journal_entry_id');
             $table->index(['account_id', 'journal_entry_id']);
         });
     }
