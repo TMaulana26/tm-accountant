@@ -11,6 +11,7 @@ use App\Events\TransactionReverted;
 use App\Events\WalletBalanceUpdated;
 use App\Models\Account;
 use App\Models\JournalEntry;
+use App\Models\JournalItem;
 use App\Models\TelegramMessage;
 use App\Models\User;
 use Carbon\Carbon;
@@ -315,7 +316,8 @@ class AccountingService
                 // Surplus: Debit Wallet, Credit Other Revenue (Penyesuaian Saldo)
                 $adjustmentAccount = Account::where('code', '4-20001')->first()
                     ?? Account::where('type', AccountType::Revenue)->whereNotNull('parent_id')->first()
-                    ?? Account::where('type', AccountType::Revenue)->firstOrFail();
+                    ?? Account::where('type', AccountType::Revenue)->first()
+                    ?? $this->findOrCreateIncomeAccount('Pendapatan Lainnya (Penyesuaian Saldo)');
 
                 return $this->createJournalEntry([
                     'date' => $date,
@@ -342,7 +344,8 @@ class AccountingService
             $absDiff = abs($diff);
             $adjustmentAccount = Account::where('code', '6-30001')->first()
                 ?? Account::where('type', AccountType::Expense)->whereNotNull('parent_id')->first()
-                ?? Account::where('type', AccountType::Expense)->firstOrFail();
+                ?? Account::where('type', AccountType::Expense)->first()
+                ?? $this->findOrCreateExpenseAccount('Beban Lainnya (Penyesuaian Saldo)');
 
             return $this->createJournalEntry([
                 'date' => $date,
@@ -1075,5 +1078,344 @@ class AccountingService
             'wallet_account' => $walletAccount,
             'wallet_balance' => $walletAccount ? (float) $walletAccount->balance : null,
         ];
+    }
+
+    /**
+     * Extract a normalized contact/person name from a debt or receivable transaction description.
+     */
+    public function extractContactNameFromDescription(string $description): string
+    {
+        $clean = trim($description);
+
+        // If there is an explicit name in parentheses like "Teman Pinjam Uang (Rizki Juli Aditia)", prefer it if the outer text is generic
+        if (preg_match('/^(?:teman\s+pinjam\s+uang|saudara\s+meminjam\s+uang|pinjaman\s+teman)\s*\(([^)]+)\)/iu', $clean, $m)) {
+            return trim($m[1]);
+        }
+
+        // Remove common prefix phrases
+        $prefixes = [
+            '/^(?:pelunasan|pembayaran|bayar|lunasin|lunasi|cicil|cicilan)\s+(?:piutang|hutang|utang|pinjaman)\s+(?:ibu\s+)?(?:ke|dari|oleh)?\s*/iu',
+            '/^(?:meminjamkan|pinjamkan|pinjam|pinjaman)\s+uang\s+(?:teman\s+)?(?:ke|dari|untuk)\s+/iu',
+            '/^(?:meminjamkan|pinjamkan|pinjaman)\s+(?:ke|dari|untuk)?\s*/iu',
+            '/^(?:terima\s+)?(?:bayaran|cicilan|pelunasan)\s+(?:dari|ke)\s+/iu',
+            '/^(?:piutang|hutang|utang|kasbon|talangan)\s+(?:ke|dari)?\s*/iu',
+            '/^(?:a|kang|teh|mas|mbak|pak|bu|bapak|ibu|om|tante)\s+/iu',
+        ];
+
+        foreach ($prefixes as $pattern) {
+            $clean = preg_replace($pattern, '', $clean);
+        }
+
+        // Run salutation prefix strip once more after stripping transaction prefixes
+        $clean = preg_replace('/^(?:a|kang|teh|mas|mbak|pak|bu|bapak|ibu|om|tante)\s+/iu', '', $clean);
+
+        // Strip trailing purpose or payment method clauses ("untuk Modal...", "via Bank...", "pakai...", "di...")
+        $clean = preg_replace('/\s+(?:untuk|buat|via|pakai|pake|dari|ke\s+bank|ke\s+dana|ke\s+gopay|ke\s+bca)\s+.*$/iu', '', $clean);
+        $clean = preg_replace('/\s*\([^)]*\)\s*$/u', '', $clean);
+        $clean = trim($clean, " \t\n\r\0\x0B-—:.");
+
+        return $clean !== '' ? $clean : 'Tanpa Nama';
+    }
+
+    /**
+     * Aggregate open and settled Receivable (Piutang) and Payable (Hutang) balances per person.
+     */
+    public function getDebtReceivableSummary(?string $personKeyword = null, string $type = 'all'): array
+    {
+        $items = JournalItem::query()
+            ->with(['journalEntry', 'account'])
+            ->whereHas('account', function ($q) {
+                $q->where('category', AccountCategory::AccountsReceivable)
+                    ->orWhere('type', AccountType::Liability);
+            })
+            ->get()
+            ->sortBy(fn (JournalItem $i) => $i->journalEntry?->date?->timestamp ?? 0);
+
+        $receivableGroups = [];
+        $payableGroups = [];
+
+        foreach ($items as $item) {
+            $entry = $item->journalEntry;
+            $account = $item->account;
+            if (! $entry || ! $account) {
+                continue;
+            }
+
+            $rawPerson = $this->extractContactNameFromDescription($entry->description);
+            $isReceivable = $account->category === AccountCategory::AccountsReceivable;
+            $targetGroups = &$receivableGroups;
+            if (! $isReceivable) {
+                $targetGroups = &$payableGroups;
+            }
+
+            // Match existing canonical key if one is a token prefix of another (e.g. "Bifadli" <-> "Bifadli Muhamad Hasan")
+            $matchedKey = null;
+            $lowerRaw = mb_strtolower($rawPerson);
+            foreach (array_keys($targetGroups) as $existingKey) {
+                $lowerExisting = mb_strtolower($existingKey);
+                if ($lowerExisting === $lowerRaw
+                    || str_starts_with($lowerExisting, $lowerRaw.' ')
+                    || str_starts_with($lowerRaw, $lowerExisting.' ')) {
+                    $matchedKey = $existingKey;
+                    break;
+                }
+            }
+
+            $key = $matchedKey ?? $rawPerson;
+            if (! isset($targetGroups[$key])) {
+                $targetGroups[$key] = [
+                    'name' => $key,
+                    'person' => $key,
+                    'given' => 0.0,
+                    'total_given' => 0.0,
+                    'repaid' => 0.0,
+                    'total_repaid' => 0.0,
+                    'borrowed' => 0.0,
+                    'total_borrowed' => 0.0,
+                    'paid' => 0.0,
+                    'remaining' => 0.0,
+                    'last_date' => $entry->date->translatedFormat('d M Y'),
+                    'items' => [],
+                ];
+            } elseif (mb_strlen($rawPerson) > mb_strlen($targetGroups[$key]['person']) && $rawPerson !== 'Tanpa Nama') {
+                $targetGroups[$key]['person'] = $rawPerson;
+                $targetGroups[$key]['name'] = $rawPerson;
+            }
+
+            $debit = (float) $item->debit;
+            $credit = (float) $item->credit;
+            $targetGroups[$key]['last_date'] = $entry->date->translatedFormat('d M Y');
+
+            if ($isReceivable) {
+                $targetGroups[$key]['given'] += $debit;
+                $targetGroups[$key]['total_given'] = $targetGroups[$key]['given'];
+                $targetGroups[$key]['repaid'] += $credit;
+                $targetGroups[$key]['total_repaid'] = $targetGroups[$key]['repaid'];
+                $targetGroups[$key]['remaining'] = round($targetGroups[$key]['given'] - $targetGroups[$key]['repaid'], 2);
+            } else {
+                // For Liability (Hutang), credit is borrowing, debit is paying back
+                $targetGroups[$key]['borrowed'] += $credit;
+                $targetGroups[$key]['total_borrowed'] = $targetGroups[$key]['borrowed'];
+                $targetGroups[$key]['paid'] += $debit;
+                $targetGroups[$key]['total_repaid'] = $targetGroups[$key]['paid'];
+                $targetGroups[$key]['remaining'] = round($targetGroups[$key]['borrowed'] - $targetGroups[$key]['paid'], 2);
+            }
+
+            $targetGroups[$key]['items'][] = [
+                'date' => $entry->date->translatedFormat('d M Y'),
+                'entry_number' => $entry->entry_number,
+                'description' => $entry->description,
+                'debit' => $debit,
+                'credit' => $credit,
+            ];
+        }
+
+        $filterFn = function (array $group) use ($personKeyword): bool {
+            if ($group['remaining'] <= 0) {
+                return false;
+            }
+
+            if (! empty($personKeyword)) {
+                $kw = mb_strtolower(trim($personKeyword));
+                $kw = preg_replace('/^(?:a|kang|teh|mas|mbak|pak|bu|om|tante)\s+/iu', '', $kw);
+                $personLower = mb_strtolower($group['person']);
+                $inItems = collect($group['items'])->contains(fn ($i) => str_contains(mb_strtolower($i['description']), $kw));
+
+                return str_contains($personLower, $kw) || $inItems;
+            }
+
+            return true;
+        };
+
+        $receivables = ($type === 'debt') ? [] : array_values(array_filter($receivableGroups, $filterFn));
+        $payables = ($type === 'receivable') ? [] : array_values(array_filter($payableGroups, $filterFn));
+
+        $totalRec = (float) collect($receivables)->sum(fn ($g) => max(0, $g['remaining']));
+        $totalDebt = (float) collect($payables)->sum(fn ($g) => max(0, $g['remaining']));
+
+        return [
+            'receivables' => $receivables,
+            'debts' => $payables,
+            'payables' => $payables,
+            'total_receivable' => $totalRec,
+            'total_receivable_remaining' => $totalRec,
+            'total_debt' => $totalDebt,
+            'total_payable_remaining' => $totalDebt,
+        ];
+    }
+
+    /**
+     * Modify an existing simple JournalEntry in-place (wallet, category, amount, or description).
+     */
+    public function modifyJournalEntryQuick(
+        JournalEntry $journal,
+        ?Account $newWallet = null,
+        ?Account $newCategory = null,
+        ?float $newAmount = null,
+        ?string $newDescription = null,
+    ): JournalEntry {
+        $journal->loadMissing('items.account');
+
+        $cashItems = $journal->items->filter(fn ($i) => $i->account?->category === AccountCategory::CashAndBank)->values();
+        $nonCashItem = $journal->items->first(fn ($i) => $i->account?->category !== AccountCategory::CashAndBank);
+
+        $currentAmount = (float) $journal->total_debit;
+        $amount = ($newAmount !== null && $newAmount > 0) ? $newAmount : $currentAmount;
+        $description = ! empty($newDescription) ? $newDescription : $journal->description;
+
+        $itemsPayload = [];
+
+        if ($nonCashItem) {
+            $cashItem = $cashItems->first();
+            $walletAccount = $newWallet ?? $cashItem?->account ?? $this->getDefaultPaymentAccount();
+            $categoryAccount = $newCategory ?? $nonCashItem->account;
+
+            $isCashCredit = ($cashItem && (float) $cashItem->credit > 0);
+
+            if ($isCashCredit) {
+                // Outflow / Expense / Lending / Debt payment: Debit Category, Credit Wallet
+                $itemsPayload = [
+                    [
+                        'account_id' => $categoryAccount->id,
+                        'debit' => $amount,
+                        'credit' => 0,
+                        'memo' => $description,
+                    ],
+                    [
+                        'account_id' => $walletAccount->id,
+                        'debit' => 0,
+                        'credit' => $amount,
+                        'memo' => "Pembayaran dari {$walletAccount->name}",
+                    ],
+                ];
+            } else {
+                // Inflow / Income / Receivable repayment: Debit Wallet, Credit Category
+                $itemsPayload = [
+                    [
+                        'account_id' => $walletAccount->id,
+                        'debit' => $amount,
+                        'credit' => 0,
+                        'memo' => "Penerimaan ke {$walletAccount->name}",
+                    ],
+                    [
+                        'account_id' => $categoryAccount->id,
+                        'debit' => 0,
+                        'credit' => $amount,
+                        'memo' => $description,
+                    ],
+                ];
+            }
+        } elseif ($newCategory !== null && $cashItems->count() === 2) {
+            // Converting a mistakenly recorded Transfer into an Expense (e.g. #502 "TF ke om" -> "Donasi ke om")
+            $fromItem = $cashItems->first(fn ($i) => (float) $i->credit > 0) ?? $cashItems->first();
+            $walletAccount = $newWallet ?? $fromItem->account;
+
+            $itemsPayload = [
+                [
+                    'account_id' => $newCategory->id,
+                    'debit' => $amount,
+                    'credit' => 0,
+                    'memo' => $description,
+                ],
+                [
+                    'account_id' => $walletAccount->id,
+                    'debit' => 0,
+                    'credit' => $amount,
+                    'memo' => "Pembayaran dari {$walletAccount->name}",
+                ],
+            ];
+        } else {
+            // Transfer between 2 wallets
+            $fromItem = $cashItems->first(fn ($i) => (float) $i->credit > 0) ?? $cashItems->first();
+            $toItem = $cashItems->first(fn ($i) => (float) $i->debit > 0) ?? $cashItems->last();
+            $fromAccount = $newWallet ?? $fromItem?->account ?? $this->getDefaultPaymentAccount();
+            $toAccount = $toItem?->account ?? $this->getDefaultPaymentAccount();
+
+            $itemsPayload = [
+                [
+                    'account_id' => $toAccount->id,
+                    'debit' => $amount,
+                    'credit' => 0,
+                    'memo' => "Transfer masuk dari {$fromAccount->name}",
+                ],
+                [
+                    'account_id' => $fromAccount->id,
+                    'debit' => 0,
+                    'credit' => $amount,
+                    'memo' => "Transfer keluar ke {$toAccount->name}",
+                ],
+            ];
+        }
+
+        return $this->updateJournalEntry($journal, [
+            'date' => $journal->date,
+            'description' => $description,
+            'reference_number' => $journal->reference_number,
+            'source' => $journal->source,
+            'receipt_image' => $journal->receipt_image,
+        ], $itemsPayload);
+    }
+
+    /**
+     * Update an existing journal entry and replace its line items atomically.
+     *
+     * @param  array<string, mixed>  $entryData
+     * @param  array<int, array{account_id: int, debit?: float, credit?: float, memo?: ?string}>  $items
+     */
+    public function updateJournalEntry(JournalEntry $journal, array $entryData, array $items): JournalEntry
+    {
+        if (count($items) < 2) {
+            throw new InvalidArgumentException('Jurnal harus memiliki minimal dua baris item.');
+        }
+
+        $totalDebit = 0.0;
+        $totalCredit = 0.0;
+        foreach ($items as $item) {
+            $debit = (float) ($item['debit'] ?? 0);
+            $credit = (float) ($item['credit'] ?? 0);
+            $totalDebit += $debit;
+            $totalCredit += $credit;
+        }
+
+        if (abs($totalDebit - $totalCredit) > 0.01 || $totalDebit <= 0) {
+            throw new InvalidArgumentException('Total Debit dan Kredit harus seimbang dan lebih dari 0.');
+        }
+
+        $previousAccountIds = $journal->items()->pluck('account_id')->all();
+
+        $updated = DB::transaction(function () use ($journal, $entryData, $items) {
+            $journal->update([
+                'date' => $entryData['date'] ?? $journal->date,
+                'description' => $entryData['description'] ?? $journal->description,
+                'reference_number' => $entryData['reference_number'] ?? $journal->reference_number,
+                'source' => $entryData['source'] ?? $journal->source,
+                'receipt_image' => $entryData['receipt_image'] ?? $journal->receipt_image,
+            ]);
+
+            $journal->items()->delete();
+
+            foreach ($items as $item) {
+                $journal->items()->create([
+                    'account_id' => $item['account_id'],
+                    'debit' => (float) ($item['debit'] ?? 0),
+                    'credit' => (float) ($item['credit'] ?? 0),
+                    'memo' => $item['memo'] ?? null,
+                ]);
+            }
+
+            return $journal->load('items.account');
+        });
+
+        $currentAccountIds = collect($items)->pluck('account_id')->all();
+        $affectedIds = array_unique(array_merge($previousAccountIds, $currentAccountIds));
+        $affectedWallets = Account::whereIn('id', $affectedIds)
+            ->where('category', AccountCategory::CashAndBank)
+            ->get();
+
+        foreach ($affectedWallets as $wallet) {
+            event(new WalletBalanceUpdated($wallet));
+        }
+
+        return $updated;
     }
 }

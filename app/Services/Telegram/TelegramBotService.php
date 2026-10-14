@@ -22,6 +22,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 class TelegramBotService
@@ -208,6 +209,20 @@ class TelegramBotService
                 return;
             }
 
+            // Command: /piutang
+            if (in_array(strtolower($text), ['/piutang', 'piutang', 'cek piutang'])) {
+                $this->executeQueryDebtsReceivables($chatId, ['type' => 'receivable'], $telegramLog);
+
+                return;
+            }
+
+            // Command: /hutang or /utang
+            if (in_array(strtolower($text), ['/hutang', 'hutang', '/utang', 'utang', 'cek hutang', 'cek utang'])) {
+                $this->executeQueryDebtsReceivables($chatId, ['type' => 'debt'], $telegramLog);
+
+                return;
+            }
+
             // Command: /model or /ai
             if (in_array(strtolower($text), ['/model', 'model', '/ai', 'ai', 'cek model', 'info model', '/provider', 'provider'])) {
                 $this->sendModelInfo($chatId, $telegramLog);
@@ -229,11 +244,21 @@ class TelegramBotService
                 return;
             }
 
+            // Extract replied-to journal number & build short-term conversation context
+            $replyToMessage = $message['reply_to_message'] ?? null;
+            $repliedJournalNumber = $this->extractRepliedJournalNumber($chatId, $replyToMessage);
+            $conversationContext = $this->buildRecentConversationContext($chatId, $telegramLog->id, $replyToMessage, $repliedJournalNumber);
+            AiServiceManager::$activeConversationContext = $conversationContext;
+
             // Process through AI Provider Manager (Ollama, DeepSeek, OpenAI, etc.)
             $aiResult = $this->aiManager->processMessage($text);
 
             $intent = $aiResult['intent'];
             $params = $aiResult['parameters'];
+
+            if ($intent === 'update_transaction' && empty($params['journal_number']) && ! empty($repliedJournalNumber)) {
+                $params['journal_number'] = $repliedJournalNumber;
+            }
 
             $telegramLog->update([
                 'intent' => $intent,
@@ -251,6 +276,18 @@ class TelegramBotService
 
                 case 'record_transfer':
                     $this->executeRecordTransfer($chatId, $params, $telegramLog);
+                    break;
+
+                case 'update_transaction':
+                    $this->executeUpdateTransaction($chatId, $params, $telegramLog);
+                    break;
+
+                case 'adjust_account_balance':
+                    $this->executeAdjustAccountBalance($chatId, $params, $telegramLog);
+                    break;
+
+                case 'query_debts_receivables':
+                    $this->executeQueryDebtsReceivables($chatId, $params, $telegramLog);
                     break;
 
                 case 'query_financial_summary':
@@ -286,7 +323,14 @@ class TelegramBotService
 
             Log::error('Telegram Bot processing error: '.$e->getMessage(), ['trace' => $e->getTraceAsString()]);
             $errorMsg = '⚠️ <b>Terjadi Kesalahan:</b> '.htmlspecialchars($e->getMessage());
-            $this->sendMessage($chatId, $errorMsg);
+            $retryMarkup = $telegramLog ? [
+                'inline_keyboard' => [
+                    [
+                        ['text' => '🔄 Coba Proses Ulang', 'callback_data' => "retry_msg_{$telegramLog->id}"],
+                    ],
+                ],
+            ] : null;
+            $this->sendMessage($chatId, $errorMsg, $retryMarkup);
             $telegramLog?->update([
                 'status' => TelegramMessageStatus::Failed,
                 'ai_response' => $e->getMessage(),
@@ -462,7 +506,14 @@ class TelegramBotService
 
             Log::error('Telegram Image OCR error: '.$e->getMessage(), ['trace' => $e->getTraceAsString()]);
             $errorMsg = '⚠️ <b>Gagal Memproses Gambar:</b> '.htmlspecialchars($e->getMessage());
-            $this->sendMessage($chatId, $errorMsg);
+            $retryMarkup = $telegramLog ? [
+                'inline_keyboard' => [
+                    [
+                        ['text' => '🔄 Coba Proses Ulang', 'callback_data' => "retry_msg_{$telegramLog->id}"],
+                    ],
+                ],
+            ] : null;
+            $this->sendMessage($chatId, $errorMsg, $retryMarkup);
             $telegramLog?->update([
                 'status' => TelegramMessageStatus::Failed,
                 'ai_response' => $e->getMessage(),
@@ -517,6 +568,15 @@ class TelegramBotService
 
         $expenseAccount = $this->accountingService->findOrCreateExpenseAccount($expenseAccountName);
         $paymentAccount = $this->accountingService->findPaymentAccount($paymentAccountKeyword);
+
+        // Auto-lookup open debt nominal if user said "lunasin hutang ke ..." without specifying amount
+        if ($amount <= 0 && ($expenseAccount->type === AccountType::Liability || preg_match('/\b(lunasin|lunasi|bayar\s+hutang|bayar\s+utang|cicil)\b/iu', $description.' '.$expenseAccountName))) {
+            $personName = $this->accountingService->extractContactNameFromDescription($description);
+            $summary = $this->accountingService->getDebtReceivableSummary($personName !== 'Tanpa Nama' ? $personName : null, 'debt');
+            if (! empty($summary['debts'][0]['remaining']) && $summary['debts'][0]['remaining'] > 0) {
+                $amount = (float) $summary['debts'][0]['remaining'];
+            }
+        }
 
         $referenceNumber = (! empty($log->telegram_message_id) && ! empty($log->chat_id))
             ? "TG-{$log->chat_id}-{$log->telegram_message_id}"
@@ -618,6 +678,15 @@ class TelegramBotService
 
         $incomeAccount = $this->accountingService->findOrCreateIncomeAccount($incomeAccountName);
         $depositAccount = $this->accountingService->findPaymentAccount($depositAccountKeyword);
+
+        // Auto-lookup open receivable nominal if user said "A Vio lunasin hutang ke bank Jago" without specifying amount
+        if ($amount <= 0 && ($incomeAccount->category === AccountCategory::AccountsReceivable || preg_match('/\b(lunasin|lunasi|bayar\s+hutang|bayar\s+utang|cicil|piutang)\b/iu', $description.' '.$incomeAccountName))) {
+            $personName = $this->accountingService->extractContactNameFromDescription($description);
+            $summary = $this->accountingService->getDebtReceivableSummary($personName !== 'Tanpa Nama' ? $personName : null, 'receivable');
+            if (! empty($summary['receivables'][0]['remaining']) && $summary['receivables'][0]['remaining'] > 0) {
+                $amount = (float) $summary['receivables'][0]['remaining'];
+            }
+        }
 
         $referenceNumber = (! empty($log->telegram_message_id) && ! empty($log->chat_id))
             ? "TG-{$log->chat_id}-{$log->telegram_message_id}"
@@ -770,6 +839,318 @@ class TelegramBotService
 
         $this->sendMessage($chatId, $text, $keyboard);
         $log->update(['ai_response' => $text]);
+    }
+
+    /**
+     * Extract journal entry number (JE-XXXXXX-XXXX) from a replied-to Telegram message.
+     */
+    protected function extractRepliedJournalNumber(string $chatId, ?array $replyToMessage): ?string
+    {
+        if (empty($replyToMessage)) {
+            return null;
+        }
+
+        $repliedText = $replyToMessage['text'] ?? ($replyToMessage['caption'] ?? '');
+        if (! empty($repliedText) && preg_match('/\b(JE-\d{6}-\d{4})\b/i', $repliedText, $matches)) {
+            return strtoupper($matches[1]);
+        }
+
+        $repliedMessageId = $replyToMessage['message_id'] ?? null;
+        if (! empty($repliedMessageId)) {
+            $repliedLog = TelegramMessage::with('journalEntry')
+                ->where('chat_id', $chatId)
+                ->where('telegram_message_id', $repliedMessageId)
+                ->whereNotNull('journal_entry_id')
+                ->first();
+
+            if ($repliedLog?->journalEntry) {
+                return $repliedLog->journalEntry->entry_number;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Build short-term conversation context (last 3 messages within 10 minutes + replied message).
+     *
+     * @return array<int, array{user: string, assistant: string, journal_number: ?string}>
+     */
+    protected function buildRecentConversationContext(
+        string $chatId,
+        int $excludeLogId,
+        ?array $replyToMessage = null,
+        ?string $repliedJournalNumber = null
+    ): array {
+        $recentLogs = TelegramMessage::with('journalEntry')
+            ->where('chat_id', $chatId)
+            ->where('id', '!=', $excludeLogId)
+            ->where('created_at', '>=', now()->subMinutes(10))
+            ->orderByDesc('id')
+            ->limit(3)
+            ->get()
+            ->reverse();
+
+        $context = [];
+        foreach ($recentLogs as $msg) {
+            $context[] = [
+                'user' => (string) $msg->raw_text,
+                'assistant' => Str::limit(trim(strip_tags((string) $msg->ai_response)), 240),
+                'journal_number' => $msg->journalEntry?->entry_number,
+            ];
+        }
+
+        if (! empty($replyToMessage)) {
+            $repliedText = trim(strip_tags((string) ($replyToMessage['text'] ?? ($replyToMessage['caption'] ?? ''))));
+            if (! empty($repliedText) || ! empty($repliedJournalNumber)) {
+                $context[] = [
+                    'user' => '[USER ME-REPLY PESAN INI]',
+                    'assistant' => Str::limit($repliedText, 240),
+                    'journal_number' => $repliedJournalNumber,
+                ];
+            }
+        }
+
+        return $context;
+    }
+
+    /**
+     * Handle Quick Transaction Update (Reply-to-Edit or latest transaction edit).
+     */
+    protected function executeUpdateTransaction(string $chatId, array $params, TelegramMessage $log): void
+    {
+        $journalNumber = trim($params['journal_number'] ?? '');
+        $journal = null;
+
+        if (! empty($journalNumber)) {
+            $journal = JournalEntry::with('items.account')
+                ->where('entry_number', $journalNumber)
+                ->first();
+        }
+
+        if (! $journal) {
+            $latestTelegramWithJournal = TelegramMessage::with('journalEntry.items.account')
+                ->where('chat_id', $chatId)
+                ->where('id', '!=', $log->id)
+                ->whereNotNull('journal_entry_id')
+                ->latest('id')
+                ->first();
+
+            $journal = $latestTelegramWithJournal?->journalEntry
+                ?? JournalEntry::with('items.account')->latest('id')->first();
+        }
+
+        if (! $journal) {
+            $msg = '⚠️ <b>Transaksi Tidak Ditemukan:</b> Belum ada transaksi yang dapat diubah. Silakan reply langsung pada pesan bukti transaksi yang ingin dikoreksi.';
+            $this->sendMessage($chatId, $msg);
+            $log->update(['ai_response' => $msg, 'status' => TelegramMessageStatus::Failed]);
+
+            return;
+        }
+
+        $newWallet = ! empty($params['payment_account'])
+            ? $this->accountingService->findPaymentAccount($params['payment_account'])
+            : null;
+
+        $newCategory = null;
+        if (! empty($params['category_account'])) {
+            $currentCategoryItem = $journal->items->first(fn ($item) => $item->account->category !== AccountCategory::CashAndBank);
+            if ($currentCategoryItem && $currentCategoryItem->account->type === AccountType::Revenue) {
+                $newCategory = $this->accountingService->findOrCreateIncomeAccount($params['category_account']);
+            } else {
+                $newCategory = $this->accountingService->findOrCreateExpenseAccount($params['category_account']);
+            }
+        }
+
+        $newAmount = (! empty($params['amount']) && (float) $params['amount'] > 0)
+            ? (float) $params['amount']
+            : null;
+
+        $newDescription = ! empty($params['description'])
+            ? $this->cleanDescription(trim($params['description']))
+            : null;
+
+        $updatedJournal = $this->accountingService->modifyJournalEntryQuick(
+            journal: $journal,
+            newWallet: $newWallet,
+            newCategory: $newCategory,
+            newAmount: $newAmount,
+            newDescription: $newDescription
+        );
+
+        $log->update([
+            'journal_entry_id' => $updatedJournal->id,
+            'status' => TelegramMessageStatus::Processed,
+        ]);
+
+        $walletItem = $updatedJournal->items->first(fn ($item) => $item->account->category === AccountCategory::CashAndBank);
+        $categoryItem = $updatedJournal->items->first(fn ($item) => $item->account->category !== AccountCategory::CashAndBank);
+        $totalNominal = (float) ($walletItem ? max($walletItem->debit, $walletItem->credit) : $updatedJournal->items->max('debit'));
+
+        $formattedAmount = 'Rp '.number_format($totalNominal, 0, ',', '.');
+        $walletAccount = $walletItem?->account?->fresh();
+        $categoryAccount = $categoryItem?->account;
+
+        $text = "✏️ <b>TRANSAKSI BERHASIL DIKOREKSI</b>\n\n"
+            ."🔖 <b>No. Jurnal:</b> <code>{$updatedJournal->entry_number}</code>\n"
+            ."📝 <b>Keterangan:</b> {$updatedJournal->description}\n"
+            ."💰 <b>Nominal:</b> <code>{$formattedAmount}</code>\n";
+
+        if ($categoryAccount) {
+            $text .= "📁 <b>Kategori/Akun:</b> [{$categoryAccount->code}] {$categoryAccount->name}\n";
+        }
+
+        if ($walletAccount) {
+            $cleanWallet = $this->cleanWalletDisplayName($walletAccount->name);
+            $remBal = $walletAccount->balance;
+            $formattedRem = ($remBal < 0 ? '-' : '').'Rp '.number_format(abs($remBal), 0, ',', '.');
+            $text .= "💳 <b>Dompet/Rekening:</b> [{$walletAccount->code}] {$walletAccount->name}\n"
+                ."━━━━━━━━━━━━━━━━━━━━\n"
+                ."💳 <b>Sisa Saldo {$cleanWallet}:</b> <code>{$formattedRem}</code>";
+        }
+
+        $keyboard = [
+            'inline_keyboard' => [
+                [
+                    ['text' => '↩️ Batalkan / Undo', 'callback_data' => "undo_journal_{$updatedJournal->id}"],
+                ],
+            ],
+        ];
+
+        $this->sendMessage($chatId, $text, $keyboard);
+        $log->update(['ai_response' => $text]);
+    }
+
+    /**
+     * Handle Direct Wallet / Cash Balance Adjustment via Telegram.
+     */
+    protected function executeAdjustAccountBalance(string $chatId, array $params, TelegramMessage $log): void
+    {
+        $accountKeyword = $params['account_name'] ?? null;
+        $wallet = $this->accountingService->findPaymentAccount($accountKeyword);
+
+        $oldBalance = (float) $wallet->balance;
+        $hasTargetBalance = isset($params['target_balance']) && $params['target_balance'] !== null && $params['target_balance'] !== '';
+
+        if ($hasTargetBalance) {
+            $targetBalance = round((float) $params['target_balance'], 2);
+            $diff = round($targetBalance - $oldBalance, 2);
+        } else {
+            $deltaAmount = round((float) ($params['delta_amount'] ?? 0), 2);
+            $targetBalance = round($oldBalance + $deltaAmount, 2);
+            $diff = $deltaAmount;
+        }
+
+        if (abs($diff) < 0.01) {
+            $formattedCurrent = 'Rp '.number_format($oldBalance, 0, ',', '.');
+            $msg = "ℹ️ Saldo <b>[{$wallet->code}] {$wallet->name}</b> saat ini sudah <code>{$formattedCurrent}</code> (tidak ada selisih penyesuaian).";
+            $this->sendMessage($chatId, $msg);
+            $log->update(['ai_response' => $msg]);
+
+            return;
+        }
+
+        $reason = ! empty($params['description'])
+            ? $this->cleanDescription(trim($params['description']))
+            : 'Penyesuaian Saldo via Telegram';
+
+        $latestAdjustmentJournal = $this->accountingService->adjustBalance($wallet, $targetBalance, $reason);
+
+        if ($latestAdjustmentJournal) {
+            $log->update([
+                'journal_entry_id' => $latestAdjustmentJournal->id,
+                'status' => TelegramMessageStatus::Processed,
+            ]);
+        }
+
+        $newBalance = (float) $wallet->fresh()->balance;
+        $formattedOld = ($oldBalance < 0 ? '-' : '').'Rp '.number_format(abs($oldBalance), 0, ',', '.');
+        $formattedDiff = ($diff >= 0 ? '+Rp ' : '-Rp ').number_format(abs($diff), 0, ',', '.');
+        $formattedNew = ($newBalance < 0 ? '-' : '').'Rp '.number_format(abs($newBalance), 0, ',', '.');
+
+        $text = "⚖️ <b>PENYESUAIAN SALDO BERHASIL DICATAT</b>\n\n"
+            ."🏦 <b>Dompet/Rekening:</b> [{$wallet->code}] {$wallet->name}\n"
+            ."📝 <b>Keterangan:</b> {$reason}\n"
+            ."📊 <b>Saldo Sebelumnya:</b> <code>{$formattedOld}</code>\n"
+            ."🔄 <b>Selisih Penyesuaian:</b> <code>{$formattedDiff}</code>\n"
+            ."━━━━━━━━━━━━━━━━━━━━\n"
+            ."💳 <b>Saldo Terkini:</b> <code>{$formattedNew}</code>";
+
+        $keyboard = $latestAdjustmentJournal ? [
+            'inline_keyboard' => [
+                [
+                    ['text' => '↩️ Batalkan / Undo', 'callback_data' => "undo_journal_{$latestAdjustmentJournal->id}"],
+                ],
+            ],
+        ] : null;
+
+        $this->sendMessage($chatId, $text, $keyboard);
+        $log->update(['ai_response' => $text]);
+    }
+
+    /**
+     * Handle Contact Debt & Receivable Sub-Ledger Query.
+     */
+    protected function executeQueryDebtsReceivables(string $chatId, array $params, TelegramMessage $log): void
+    {
+        $personKeyword = trim($params['person_name'] ?? '');
+        $type = strtolower(trim($params['type'] ?? 'all'));
+        if (! in_array($type, ['all', 'receivable', 'debt'], true)) {
+            $type = 'all';
+        }
+
+        $summary = $this->accountingService->getDebtReceivableSummary($personKeyword ?: null, $type);
+        $receivables = $summary['receivables'];
+        $debts = $summary['debts'];
+
+        if (empty($receivables) && empty($debts)) {
+            $filterInfo = ! empty($personKeyword) ? " untuk nama <b>\"{$personKeyword}\"</b>" : '';
+            $text = "📒 <b>BUKU PEMBANTU HUTANG & PIUTANG</b>\n"
+                ."━━━━━━━━━━━━━━━━━━━━\n\n"
+                ."✨ Tidak ditemukan catatan piutang atau hutang yang belum lunas{$filterInfo}.";
+
+            $this->sendMessage($chatId, $text);
+            $log->update(['intent' => 'query_debts_receivables', 'ai_response' => $text]);
+
+            return;
+        }
+
+        $text = "📒 <b>BUKU PEMBANTU HUTANG & PIUTANG</b>\n";
+        if (! empty($personKeyword)) {
+            $text .= "🔍 <i>Filter Nama: {$personKeyword}</i>\n";
+        }
+        $text .= "━━━━━━━━━━━━━━━━━━━━\n";
+
+        if (! empty($receivables)) {
+            $totalRec = 'Rp '.number_format($summary['total_receivable'], 0, ',', '.');
+            $text .= "\n🟢 <b>PIUTANG AKTIF (Uang Kita di Orang Lain):</b>\n";
+            foreach ($receivables as $r) {
+                $rem = 'Rp '.number_format($r['remaining'], 0, ',', '.');
+                $given = 'Rp '.number_format($r['total_given'], 0, ',', '.');
+                $repaid = 'Rp '.number_format($r['total_repaid'], 0, ',', '.');
+                $text .= "• <b>{$r['name']}</b>: Sisa <code>{$rem}</code>\n"
+                    ."  <i>(Pinjam: {$given} | Dibayar: {$repaid} | Terakhir: {$r['last_date']})</i>\n";
+            }
+            $text .= "📌 <b>Total Sisa Piutang:</b> <code>{$totalRec}</code>\n";
+        }
+
+        if (! empty($debts)) {
+            $totalDebt = 'Rp '.number_format($summary['total_debt'], 0, ',', '.');
+            $text .= "\n🔴 <b>HUTANG AKTIF (Kewajiban Kita):</b>\n";
+            foreach ($debts as $d) {
+                $rem = 'Rp '.number_format($d['remaining'], 0, ',', '.');
+                $borrowed = 'Rp '.number_format($d['total_borrowed'], 0, ',', '.');
+                $repaid = 'Rp '.number_format($d['total_repaid'], 0, ',', '.');
+                $text .= "• <b>{$d['name']}</b>: Sisa <code>{$rem}</code>\n"
+                    ."  <i>(Hutang: {$borrowed} | Dibayar: {$repaid} | Terakhir: {$d['last_date']})</i>\n";
+            }
+            $text .= "📌 <b>Total Sisa Hutang:</b> <code>{$totalDebt}</code>\n";
+        }
+
+        $text .= "\n💡 <i>Tips: Saat pelunasan, cukup ketik misal: \"A Vio lunasin hutang ke bank Jago\" maka sistem otomatis mendeteksi sisa nominalnya.</i>";
+
+        $this->sendMessage($chatId, $text);
+        $log->update(['intent' => 'query_debts_receivables', 'ai_response' => $text]);
     }
 
     /**
@@ -1074,7 +1455,7 @@ class TelegramBotService
     }
 
     /**
-     * Handle callback query (e.g. Undo action).
+     * Handle callback query (e.g. Undo action, Retry action).
      */
     protected function handleCallbackQuery(array $callbackQuery): void
     {
@@ -1087,6 +1468,90 @@ class TelegramBotService
 
         if (! $this->isUserAllowed($fromId)) {
             $this->answerCallbackQuery($id, '⛔ Akses Ditolak.');
+
+            return;
+        }
+
+        if (str_starts_with($data, 'retry_msg_')) {
+            $logId = (int) str_replace('retry_msg_', '', $data);
+            $failedLog = TelegramMessage::find($logId);
+
+            if (! $failedLog) {
+                $this->answerCallbackQuery($id, 'Data pesan tidak ditemukan.');
+
+                return;
+            }
+
+            if ($failedLog->journal_entry_id !== null) {
+                $this->answerCallbackQuery($id, 'Pesan ini sudah berhasil diproses sebelumnya.');
+
+                return;
+            }
+
+            $this->answerCallbackQuery($id, '🔄 Mencoba memproses ulang pesan...');
+
+            $failedLog->update([
+                'status' => TelegramMessageStatus::Processed,
+                'ai_response' => null,
+            ]);
+
+            if (! empty($failedLog->receipt_image) && Storage::disk('public')->exists($failedLog->receipt_image)) {
+                try {
+                    $imageBytes = Storage::disk('public')->get($failedLog->receipt_image);
+                    $caption = '';
+                    if (preg_match('/Caption:\s*(.+)$/is', (string) $failedLog->raw_text, $m)) {
+                        $caption = trim($m[1]);
+                    }
+
+                    $aiResult = $this->aiManager->processReceiptImage($imageBytes, 'image/jpeg', $caption);
+                    $ocrText = $aiResult['ocr_text'] ?? '';
+                    $intent = $aiResult['intent'];
+                    $params = $aiResult['parameters'];
+
+                    $failedLog->update([
+                        'intent' => $intent,
+                        'raw_ai_payload' => [
+                            'ocr_text' => $ocrText,
+                            'ai_result' => $aiResult,
+                        ],
+                    ]);
+
+                    if ($intent === 'record_expense') {
+                        $this->executeRecordExpense($failedLog->chat_id, $params, $failedLog, isOcr: true, ocrText: $ocrText, receiptImage: $failedLog->receipt_image);
+                    } elseif ($intent === 'record_income') {
+                        $this->executeRecordIncome($failedLog->chat_id, $params, $failedLog, receiptImage: $failedLog->receipt_image);
+                    } elseif ($intent === 'record_transfer') {
+                        $this->executeRecordTransfer($failedLog->chat_id, $params, $failedLog, receiptImage: $failedLog->receipt_image);
+                    } else {
+                        $reply = $aiResult['reply_text'] ?: 'Struk berhasil dibaca, namun tidak ditemukan transaksi yang perlu dicatat.';
+                        $this->sendMessage($failedLog->chat_id, $reply);
+                        $failedLog->update(['ai_response' => $reply]);
+                    }
+                } catch (\Throwable $e) {
+                    $errorMsg = '⚠️ <b>Gagal Memproses Ulang Gambar:</b> '.htmlspecialchars($e->getMessage());
+                    $this->sendMessage($failedLog->chat_id, $errorMsg, [
+                        'inline_keyboard' => [
+                            [['text' => '🔄 Coba Proses Ulang', 'callback_data' => "retry_msg_{$failedLog->id}"]],
+                        ],
+                    ]);
+                    $failedLog->update([
+                        'status' => TelegramMessageStatus::Failed,
+                        'ai_response' => $e->getMessage(),
+                    ]);
+                }
+
+                return;
+            }
+
+            $this->handleTextMessage([
+                'chat' => ['id' => $failedLog->chat_id],
+                'from' => [
+                    'id' => $failedLog->from_id,
+                    'username' => $failedLog->from_username,
+                ],
+                'message_id' => $failedLog->telegram_message_id,
+                'text' => $failedLog->raw_text,
+            ]);
 
             return;
         }
@@ -2055,9 +2520,18 @@ Anda dapat mencatat transaksi keuangan secara instan hanya dengan mengirimkan pe
 • <i>"terima fee freelance 2.5jt di bca"</i>
 • <i>"dapat cashback 50k di gopay"</i>
 
-🔄 <b>Transfer Antar Dompet/Bank:</b>
+🔄 <b>Transfer & Penyesuaian Saldo:</b>
 • <i>"topup gopay dari bca 200rb"</i>
-• <i>"tarik tunai 500k dari mandiri"</i>
+• <i>"penyesuaian dana 7100 gopay"</i>
+• <i>"sesuaikan saldo kas tunai jadi 150k"</i>
+
+✏️ <b>Koreksi Transaksi (Reply-to-Edit):</b>
+• <i>Reply pesan bukti jurnal lalu ketik: "ralat pakai bank jago" atau "ganti jadi 35rb"</i>
+
+📒 <b>Hutang & Piutang Per Orang:</b>
+• <i>/piutang</i> (Cek daftar orang yang masih berhutang ke kita)
+• <i>/hutang</i> (Cek daftar kewajiban hutang kita)
+• <i>"A Vio lunasin hutang ke bank Jago"</i> (Otomatis deteksi nominal sisa)
 
 📈 <b>Cek Kondisi & Info Sistem:</b>
 • <i>"keuangan saya 1 minggu"</i>

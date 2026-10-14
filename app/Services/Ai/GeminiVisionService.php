@@ -42,12 +42,16 @@ Tugasmu:
 Transkripsikan SELURUH teks dan angka yang tertera pada gambar ini secara lengkap, teliti, dan terstruktur.
 
 Pastikan mencakup informasi penting berikut:
-1. Toko / Merchant / Bank / Provider: (contoh: Indomaret, Alfamart, Warung Makan, Bank BCA, Bank Mandiri, GoPay, OVO, QRIS)
-2. Tanggal & Waktu Transaksi: (contoh: 26 Agustus 2026 14:30)
-3. Rincian Item / Barang: (daftar nama produk, jumlah/qty, harga satuan, dan subtotal per item)
-4. Total Nominal: (Total Belanja / Nominal Transfer / Tagihan Akhir)
-5. Metode Pembayaran: (Tunai, Debit BCA, Kartu Kredit, QRIS, Saldo E-Wallet)
-6. Nomor Referensi / No. Struk: (jika tertera)
+1. Toko / Merchant / Penerima: (contoh: Indomaret, Alfamart, Warung Makan, Nama Penerima Transfer)
+2. Aplikasi / Sumber Dana Pengirim (PENTING untuk screenshot m-Banking / E-Wallet):
+   - Jika terlihat kata "Kantong", "Dari Kantong", "Jago", atau format ID Transaksi Bank Jago, WAJIB tulis jelas: "Sumber Dana: Bank Jago".
+   - Jika terlihat "ShopeePay", "Saldo ShopeePay", atau rincian pembayaran Shopee, WAJIB tulis jelas: "Sumber Dana: ShopeePay".
+   - Jika terlihat "GoPay", "DANA", "OVO", "BCA", "myBCA", "Livin Mandiri", "BRImo", "BSI", atau "SeaBank", WAJIB tulis jelas nama sumber dananya.
+3. Tanggal & Waktu Transaksi: (contoh: 26 Agustus 2026 14:30)
+4. Rincian Item / Barang / Catatan Transfer: (daftar nama produk, qty, harga satuan, atau catatan/berita transfer)
+5. Total Nominal: (Total Belanja / Nominal Transfer / Tagihan Akhir)
+6. Metode Pembayaran: (Tunai, Bank Jago, ShopeePay, GoPay, DANA, Debit BCA, QRIS)
+7. Nomor Referensi / No. Struk: (jika tertera)
 
 Keluarkan hasil transkripsi teks yang rapi dan mudah dipahami oleh sistem akuntansi.
 PROMPT;

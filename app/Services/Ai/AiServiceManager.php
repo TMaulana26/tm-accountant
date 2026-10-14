@@ -16,6 +16,13 @@ class AiServiceManager
     protected array $drivers = [];
 
     /**
+     * Short-term conversation context set by TelegramBotService for the current message turn.
+     *
+     * @var array<int, array{user?: string, assistant?: string, journal_number?: ?string}>
+     */
+    public static array $activeConversationContext = [];
+
+    /**
      * Resolve the AI driver instance.
      */
     public function driver(?string $name = null): AiDriverInterface
@@ -58,14 +65,44 @@ class AiServiceManager
 
     /**
      * Process natural language message via the configured AI provider.
+     *
+     * @param  array<int, array{user?: string, assistant?: string, journal_number?: ?string}>  $conversationContext
      */
-    public function processMessage(string $userMessage, ?string $provider = null): array
+    public function processMessage(string $userMessage, ?string $provider = null, array $conversationContext = []): array
     {
         $driver = $this->driver($provider);
         $systemPrompt = $this->buildSystemPrompt();
         $tools = $this->getToolsSchema();
 
-        return $driver->chat($systemPrompt, $userMessage, $tools);
+        if (empty($conversationContext) && ! empty(self::$activeConversationContext)) {
+            $conversationContext = self::$activeConversationContext;
+        }
+
+        $effectiveMessage = $userMessage;
+        if (! empty($conversationContext)) {
+            $contextLines = [];
+            foreach ($conversationContext as $turn) {
+                $u = trim((string) ($turn['user'] ?? ''));
+                $a = trim((string) ($turn['assistant'] ?? ''));
+                $j = trim((string) ($turn['journal_number'] ?? ''));
+                $line = "- User: \"{$u}\"";
+                if ($j !== '') {
+                    $line .= " [No. Jurnal: {$j}]";
+                }
+                if ($a !== '') {
+                    $shortA = mb_substr(preg_replace('/\s+/', ' ', strip_tags($a)), 0, 220);
+                    $line .= "\n  Bot: \"{$shortA}\"";
+                }
+                $contextLines[] = $line;
+            }
+
+            $effectiveMessage = "--- KONTEKS PERCAKAPAN SEBELUMNYA (URUTAN KRONOLOGIS) ---\n"
+                .implode("\n", $contextLines)
+                ."\n--- AKHIR KONTEKS ---\n\n"
+                ."Pesan Terbaru Pengguna:\n{$userMessage}";
+        }
+
+        return $driver->chat($systemPrompt, $effectiveMessage, $tools);
     }
 
     /**
@@ -95,7 +132,7 @@ class AiServiceManager
         if (! empty($caption)) {
             $combinedPrompt .= "\nCatatan Tambahan / Caption dari Pengguna (PRIORITAS UTAMA):\n\"{$caption}\"\n"
                 ."\n⚠️ ATURAN SINTESIS KETERANGAN (DESCRIPTION) & SUMBER DANA CERDAS:"
-                ."\n1. SUMBER DANA (PRIORITAS MUTLAK): Jika pengguna menyebutkan rekening/dompet/kartu pada caption (misal: 'dari bank Jago', 'pakai BCA', 'dari Gopay', 'pakai gopay', 'dari dana', 'tunai'), kamu WAJIB menetapkan `payment_account` / `deposit_account` ke dompet tersebut. Ini memiliki prioritas MUTLAK di atas teks metode pembayaran yang tertera pada struk fisik. JANGAN PERNAH mengosongkan payment_account atau mengisi 'Kas Tunai' jika caption menyebutkan dompet lain!"
+                ."\n1. SUMBER DANA (PRIORITAS MUTLAK): Jika pengguna menyebutkan rekening/dompet/kartu pada caption (misal: 'dari bank Jago', 'pakai BCA', 'dari Gopay', 'pakai gopay', 'dari dana', 'tunai'), kamu WAJIB menetapkan `payment_account` / `deposit_account` ke dompet tersebut. Jika caption TIDAK menyebutkan dompet, deteksi otomatis nama aplikasi/bank dari teks hasil OCR (misal 'Kantong' / 'Bank Jago' -> Bank Jago, 'ShopeePay' -> ShopeePay, 'GoPay' -> GoPay, 'DANA' -> DANA)."
                 ."\n2. FORMULASI KETERANGAN (DESCRIPTION):"
                 ."   - HAPUS / BERSIHKAN frasa metode pembayaran dari caption (seperti 'dari kartu debit', 'pakai bca', 'via jago', 'dari gopay', 'pakai gopay'). Frasa rekening ini TIDAK BOLEH ada di dalam kolom `description` karena sudah ada di Sumber Dana."
                 .'   - GABUNGKAN maksud/keperluan caption dengan nama Merchant/Penyedia dari struk/bukti transaksi untuk menghasilkan keterangan yang informatif dan profesional.'
@@ -112,19 +149,27 @@ class AiServiceManager
         $aiResult = $this->processMessage($combinedPrompt);
         $aiResult['ocr_text'] = $ocrText;
 
-        // Enforce deterministic wallet priority from user caption
-        if (! empty($caption)) {
-            $detectedWallet = app(AccountingService::class)->detectWalletFromText($caption);
-            if ($detectedWallet) {
-                if (isset($aiResult['parameters'])) {
-                    if (array_key_exists('payment_account', $aiResult['parameters']) || ($aiResult['intent'] ?? '') === 'record_expense') {
-                        $aiResult['parameters']['payment_account'] = $detectedWallet->name;
-                        Log::info("Enforced payment_account from caption: {$detectedWallet->name} (caption: '{$caption}')");
-                    } elseif (array_key_exists('deposit_account', $aiResult['parameters']) || ($aiResult['intent'] ?? '') === 'record_income') {
-                        $aiResult['parameters']['deposit_account'] = $detectedWallet->name;
-                        Log::info("Enforced deposit_account from caption: {$detectedWallet->name} (caption: '{$caption}')");
-                    }
+        $accountingService = app(AccountingService::class);
+        $detectedWallet = ! empty($caption) ? $accountingService->detectWalletFromText($caption) : null;
+
+        // Fallback: If caption did not specify a wallet, inspect OCR text for screenshot bank/e-wallet headers
+        if (! $detectedWallet && ! empty($ocrText)) {
+            $currentParamWallet = (string) ($aiResult['parameters']['payment_account'] ?? $aiResult['parameters']['deposit_account'] ?? '');
+            if ($currentParamWallet === '' || stripos($currentParamWallet, 'tunai') !== false) {
+                $ocrWallet = $accountingService->detectWalletFromText($ocrText);
+                if ($ocrWallet && stripos($ocrWallet->name, 'tunai') === false) {
+                    $detectedWallet = $ocrWallet;
                 }
+            }
+        }
+
+        if ($detectedWallet && isset($aiResult['parameters'])) {
+            if (array_key_exists('payment_account', $aiResult['parameters']) || ($aiResult['intent'] ?? '') === 'record_expense') {
+                $aiResult['parameters']['payment_account'] = $detectedWallet->name;
+                Log::info("Enforced payment_account: {$detectedWallet->name}");
+            } elseif (array_key_exists('deposit_account', $aiResult['parameters']) || ($aiResult['intent'] ?? '') === 'record_income') {
+                $aiResult['parameters']['deposit_account'] = $detectedWallet->name;
+                Log::info("Enforced deposit_account: {$detectedWallet->name}");
             }
         }
 
@@ -278,9 +323,19 @@ DAFTAR AKUN (CHART OF ACCOUNTS) AKTIF:
          * JANGAN PERNAH memilih "last_week" jika ada kata "sampai sekarang", karena last_week hanya mencakup pekan lalu dan memotong transaksi pekan ini!
        - Jika pengguna menyebutkan periode kalender tunggal standar ("minggu ini", "minggu lalu", "bulan ini", "kemarin", "hari ini"), gunakan `period` yang sesuai ("this_week", "last_week", "this_month", "yesterday", "today").
        - `start_date` / `end_date`: tanggal dalam format YYYY-MM-DD. Wajib diisi jika pengguna menyebut tanggal spesifik ATAU rentang relatif.
-     * `transaction_type`: "expense", "income", "transfer", atau "all".
-     * `export_format`: "text" atau "excel". Set ke "excel" jika pengguna meminta dokumen/file Excel atau spreadsheet (contoh: "export mutasi bca ke excel", "kirim riwayat pengeluaran format excel", "minta file excel mutasi", "download mutasi"). Default: "text".
-9. BATASAN & KEAMANAN (GUARDRAILS):
+      * `transaction_type`: "expense", "income", "transfer", atau "all".
+      * `export_format`: "text" atau "excel". Set ke "excel" jika pengguna meminta dokumen/file Excel atau spreadsheet (contoh: "export mutasi bca ke excel", "kirim riwayat pengeluaran format excel", "minta file excel mutasi", "download mutasi"). Default: "text".
+9. KOREKSI / RALAT TRANSAKSI SEBELUMNYA (REPLY-TO-EDIT / FOLLOW-UP):
+   - Jika pengguna membalas (reply) pesan struk sebelumnya ATAU mengirim pesan singkat yang mengoreksi transaksi barusan (misal: "pakai bank jago", "pake shopeepay", "salah dompet harusnya jago", "ralat jadi 15k", "ubah jadi donasi ke om"), panggil `update_transaction`.
+   - Jika pesan pengguna merupakan lanjutan dari pertanyaan/konteks percakapan sebelumnya (misal bot bertanya nominal lalu pengguna menjawab "25k", atau pengguna melengkapi "Buat keponakan pakai bank jago"), gabungkan informasi dari KONTEKS PERCAKAPAN SEBELUMNYA untuk memanggil tool yang tepat (`record_expense`, `update_transaction`, dll.).
+10. PENYESUAIAN SALDO / OPNAME DOMPET:
+   - Jika pengguna ingin menyesuaikan selisih saldo dompet/rekening (misal: "penyesuaian 7k", "penyesuaian dana 7100 gopay", "tambah tunai 10k dari sistem", "kurangi kas tunai 5k karena selisih", "opname saldo bca jadi 4250000", "samakan saldo kas tunai jadi 150rb"), WAJIB panggil `adjust_account_balance`!
+   - Jika pengguna menyebutkan angka selisih penambahan/pengurangan (misal "penyesuaian dana 7100 gopay", "tambah tunai 10k"), isi `delta_amount` (positif untuk penambahan, negatif untuk pengurangan).
+   - Jika pengguna menyebutkan angka saldo akhir aktual yang seharusnya (misal "sesuaikan saldo kas tunai jadi 150k", "opname bca sekarang 4.250.000"), isi `target_balance`.
+11. CEK SISA PIUTANG & HUTANG PER ORANG:
+   - Jika pengguna menanyakan daftar atau sisa piutang/pinjaman teman atau hutang ke orang lain (misal: "sisa piutang siapa aja?", "utang vio tinggal berapa?", "cek piutang adit", "daftar hutang saya"), panggil `query_debts_receivables`.
+   - Jika orang lain melunasi/membayar utang ke pengguna TANPA menyebutkan nominal angka (contoh: "A Vio lunasin hutang ke bank Jago"), tetap panggil `record_income` dengan `income_account`: "Piutang Pribadi / Pinjaman Teman", `description`: "Pelunasan Piutang dari Vio", dan `amount`: 0 (sistem akan otomatis mengisi nominal dari sisa piutang Vio!).
+12. BATASAN & KEAMANAN (GUARDRAILS):
    - Kamu adalah asisten khusus PENCATATAN KEUANGAN PRIBADI.
    - Jika pengguna mengirim pesan di luar topik keuangan (misalnya meminta resep makanan, coding/programming, dongeng/cerita, opini politik, gosip, atau pertanyaan non-keuangan lainnya), ATAU jika pesan berupa teks panjang yang tidak memuat transaksi keuangan, JANGAN panggil tool transaksi apapun.
    - Berikan respon ramah yang menegaskan bahwa Anda hanya melayani pencatatan keuangan (pemasukan, pengeluaran, transfer, dan laporan).
@@ -297,13 +352,13 @@ PROMPT;
                 'type' => 'function',
                 'function' => [
                     'name' => 'record_expense',
-                    'description' => 'Mencatat transaksi pengeluaran atau beban (misal: beli makan, belanja, bayar tagihan, bensin).',
+                    'description' => 'Mencatat transaksi pengeluaran, beban, pinjaman ke teman (piutang), investasi/arisan, atau pembayaran hutang.',
                     'parameters' => [
                         'type' => 'object',
                         'properties' => [
                             'amount' => [
                                 'type' => 'number',
-                                'description' => 'Nominal pengeluaran dalam angka murni tanpa simbol (contoh: 25000 untuk 25k).',
+                                'description' => 'Nominal pengeluaran dalam angka murni tanpa simbol (contoh: 25000 untuk 25k). Isi 0 jika melunasi semua sisa hutang tanpa menyebut angka.',
                             ],
                             'description' => [
                                 'type' => 'string',
@@ -315,7 +370,7 @@ PROMPT;
                             ],
                             'payment_account' => [
                                 'type' => 'string',
-                                'description' => 'Nama atau kata kunci rekening/dompet sumber pembayaran jika disebutkan (contoh: BCA, Mandiri, Gopay, Kas Tunai). Kosongkan jika tidak disebutkan.',
+                                'description' => 'Nama atau kata kunci rekening/dompet sumber pembayaran jika disebutkan (contoh: BCA, Bank Jago, Mandiri, Gopay, Kas Tunai). Kosongkan jika tidak disebutkan.',
                             ],
                             'date' => [
                                 'type' => 'string',
@@ -330,25 +385,25 @@ PROMPT;
                 'type' => 'function',
                 'function' => [
                     'name' => 'record_income',
-                    'description' => 'Mencatat transaksi pemasukan atau pendapatan (misal: gaji, bonus, fee freelance, penjualan).',
+                    'description' => 'Mencatat transaksi pemasukan, pendapatan, atau pelunasan piutang dari orang lain (teman membayar utang ke pengguna).',
                     'parameters' => [
                         'type' => 'object',
                         'properties' => [
                             'amount' => [
                                 'type' => 'number',
-                                'description' => 'Nominal pemasukan dalam angka murni (contoh: 5000000).',
+                                'description' => 'Nominal pemasukan dalam angka murni (contoh: 5000000). Isi 0 jika orang lain melunasi seluruh sisa utangnya tanpa menyebut nominal.',
                             ],
                             'description' => [
                                 'type' => 'string',
-                                'description' => 'Keterangan sumber pemasukan (contoh: Gaji Bulan Agustus, Fee Desain).',
+                                'description' => 'Keterangan sumber pemasukan (contoh: Gaji Bulan Agustus, Pelunasan Piutang dari Vio).',
                             ],
                             'income_account' => [
                                 'type' => 'string',
-                                'description' => 'Nama kategori akun pendapatan yang sesuai (contoh: Gaji Pokok & Upah, Pendapatan Proyek & Freelance).',
+                                'description' => 'Nama kategori akun pendapatan yang sesuai (contoh: Gaji Pokok & Upah, Piutang Pribadi / Pinjaman Teman).',
                             ],
                             'deposit_account' => [
                                 'type' => 'string',
-                                'description' => 'Nama rekening/dompet tujuan masuknya uang (contoh: BCA, Mandiri, Kas Tunai). Kosongkan jika tidak disebutkan.',
+                                'description' => 'Nama rekening/dompet tujuan masuknya uang (contoh: BCA, Bank Jago, DANA, Mandiri, Kas Tunai). Kosongkan jika tidak disebutkan.',
                             ],
                             'date' => [
                                 'type' => 'string',
@@ -389,6 +444,87 @@ PROMPT;
                             ],
                         ],
                         'required' => ['amount', 'from_account', 'to_account', 'description'],
+                    ],
+                ],
+            ],
+            [
+                'type' => 'function',
+                'function' => [
+                    'name' => 'update_transaction',
+                    'description' => 'Mengoreksi atau mengubah transaksi yang baru saja dicatat (atau pesan struk yang di-reply pengguna), misalnya mengganti dompet pembayaran ("pakai bank jago", "pake shopeepay"), mengganti nominal ("ralat 15k"), atau mengganti kategori/keterangan ("ubah jadi donasi ke om").',
+                    'parameters' => [
+                        'type' => 'object',
+                        'properties' => [
+                            'entry_number' => [
+                                'type' => 'string',
+                                'description' => 'Nomor jurnal yang ingin diubah jika diketahui dari konteks (contoh: JE-202610-0012). Kosongkan untuk mengubah transaksi terakhir.',
+                            ],
+                            'wallet_account' => [
+                                'type' => 'string',
+                                'description' => 'Nama dompet/rekening baru jika pengguna mengoreksi sumber/tujuan dana (contoh: Bank Jago, ShopeePay, GoPay, DANA, Kas Tunai).',
+                            ],
+                            'category_account' => [
+                                'type' => 'string',
+                                'description' => 'Nama kategori akun beban/pendapatan baru jika pengguna mengoreksi kategori (contoh: Donasi, Zakat & Sedekah, Makanan & Minuman (Harian)).',
+                            ],
+                            'amount' => [
+                                'type' => 'number',
+                                'description' => 'Nominal baru jika pengguna mengoreksi jumlah uang.',
+                            ],
+                            'description' => [
+                                'type' => 'string',
+                                'description' => 'Keterangan baru jika pengguna mengoreksi deskripsi transaksi.',
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+            [
+                'type' => 'function',
+                'function' => [
+                    'name' => 'adjust_account_balance',
+                    'description' => 'Menyesuaikan saldo dompet/rekening karena opname kas atau selisih (contoh: "penyesuaian 7k", "penyesuaian dana 7100 gopay", "tambah tunai 10k dari sistem", "sesuaikan saldo kas tunai jadi 150k").',
+                    'parameters' => [
+                        'type' => 'object',
+                        'properties' => [
+                            'account_name' => [
+                                'type' => 'string',
+                                'description' => 'Nama dompet/rekening yang disesuaikan (contoh: GoPay, DANA, Bank Jago, Kas Tunai). Kosongkan jika default Kas Tunai.',
+                            ],
+                            'delta_amount' => [
+                                'type' => 'number',
+                                'description' => 'Nominal selisih penambahan (+) atau pengurangan (-) jika pengguna menyebutkan jumlah penyesuaian (contoh: 7100 untuk "penyesuaian 7100", 10000 untuk "tambah tunai 10k", -5000 untuk "kurangi 5k").',
+                            ],
+                            'target_balance' => [
+                                'type' => 'number',
+                                'description' => 'Saldo akhir aktual yang seharusnya jika pengguna menyebutkan posisi saldo tujuan (contoh: 150000 untuk "sesuaikan saldo tunai jadi 150k").',
+                            ],
+                            'reason' => [
+                                'type' => 'string',
+                                'description' => 'Alasan penyesuaian saldo (contoh: Penyesuaian Saldo (Opname), Selisih Sistem).',
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+            [
+                'type' => 'function',
+                'function' => [
+                    'name' => 'query_debts_receivables',
+                    'description' => 'Mengecek daftar dan sisa saldo piutang (uang dipinjam teman/keluarga) atau hutang per nama orang (contoh: "sisa piutang siapa aja", "utang vio tinggal berapa", "cek piutang adit", "daftar hutang saya").',
+                    'parameters' => [
+                        'type' => 'object',
+                        'properties' => [
+                            'person_name' => [
+                                'type' => 'string',
+                                'description' => 'Nama orang yang ingin dicek sisa piutang/hutangnya (contoh: Vio, Adit, Bifadli). Kosongkan jika ingin melihat semua daftar.',
+                            ],
+                            'type' => [
+                                'type' => 'string',
+                                'enum' => ['receivable', 'payable', 'all'],
+                                'description' => 'receivable untuk piutang (orang pinjam ke kita), payable untuk hutang (kita pinjam ke orang), atau all untuk keduanya.',
+                            ],
+                        ],
                     ],
                 ],
             ],
@@ -461,7 +597,7 @@ PROMPT;
                             ],
                             'end_date' => [
                                 'type' => 'string',
-                                'description' => 'Tanggal akhir pencarian (format YYYY-MM-DD). Jika rentang berbunyi "sampai sekarang" atau "sampai hari ini", isi dengan tanggal hari ini.',
+                                'description' => 'Tanggal akhir pencarian (format YYYY-DD-MM). Jika rentang berbunyi "sampai sekarang" atau "sampai hari ini", isi dengan tanggal hari ini.',
                             ],
                             'transaction_type' => [
                                 'type' => 'string',

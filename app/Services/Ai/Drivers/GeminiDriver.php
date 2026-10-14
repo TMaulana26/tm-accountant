@@ -26,8 +26,6 @@ class GeminiDriver implements AiDriverInterface
 
     public function chat(string $systemPrompt, string $userMessage, array $tools = []): array
     {
-        $endpoint = "{$this->baseUrl}/models/{$this->model}:generateContent";
-
         $contents = [
             [
                 'role' => 'user',
@@ -63,20 +61,60 @@ class GeminiDriver implements AiDriverInterface
             }
         }
 
-        $response = Http::timeout($this->timeout)
-            ->withHeaders([
-                'Content-Type' => 'application/json',
-                'x-goog-api-key' => $this->apiKey,
-            ])
-            ->post($endpoint, $payload);
+        $modelsToTry = array_values(array_unique([
+            $this->model,
+            'gemini-2.5-flash',
+            'gemini-2.0-flash',
+            'gemini-2.0-flash-lite',
+        ]));
 
-        if (! $response->successful()) {
-            $error = $response->json('error.message') ?? $response->body();
-            Log::error("Gemini AI Error ({$response->status()}): {$error}");
-            throw new Exception("Gemini API Error ({$response->status()}): {$error}");
+        $lastException = null;
+        $data = null;
+
+        foreach ($modelsToTry as $idx => $modelName) {
+            $endpoint = "{$this->baseUrl}/models/{$modelName}:generateContent";
+
+            try {
+                $response = Http::timeout($this->timeout)
+                    ->withHeaders([
+                        'Content-Type' => 'application/json',
+                        'x-goog-api-key' => $this->apiKey,
+                    ])
+                    ->post($endpoint, $payload);
+
+                if ($response->successful()) {
+                    $data = $response->json();
+                    break;
+                }
+
+                $status = $response->status();
+                $error = $response->json('error.message') ?? $response->body();
+                Log::warning("Gemini AI chat attempt with model {$modelName} failed ({$status}): {$error}");
+                $lastException = new Exception("Gemini API Error ({$status}): {$error}");
+
+                if (in_array($status, [404, 429, 500, 502, 503, 504], true) && $idx < count($modelsToTry) - 1) {
+                    continue;
+                }
+
+                break;
+            } catch (Exception $e) {
+                Log::warning("Gemini AI chat exception with model {$modelName}: ".$e->getMessage());
+                $lastException = $e;
+
+                if ($idx < count($modelsToTry) - 1) {
+                    continue;
+                }
+            }
         }
 
-        $data = $response->json();
+        if ($data === null) {
+            if ($lastException) {
+                Log::error($lastException->getMessage());
+                throw $lastException;
+            }
+            throw new Exception('Gagal menghubungi layanan Gemini AI.');
+        }
+
         $candidate = $data['candidates'][0]['content']['parts'][0] ?? [];
 
         // Check for function call
