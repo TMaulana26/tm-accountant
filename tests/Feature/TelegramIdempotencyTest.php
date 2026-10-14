@@ -47,7 +47,7 @@ beforeEach(function () {
         ['account_id' => $modalAwal->id, 'debit' => 0, 'credit' => 165000],
     ]);
 
-    config(['services.telegram.allowed_user_ids' => '7163641352']);
+    config(['telegram.allowed_user_ids' => ['7163641352']]);
     Http::fake([
         'api.telegram.org/*' => Http::response(['ok' => true, 'result' => ['message_id' => 999]], 200),
     ]);

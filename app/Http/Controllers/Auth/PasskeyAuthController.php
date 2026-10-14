@@ -77,56 +77,77 @@ class PasskeyAuthController extends Controller
     public function login(Request $request): JsonResponse
     {
         $credentialId = $request->input('id');
-        $user = null;
+        if (! is_string($credentialId) || trim($credentialId) === '') {
+            return response()->json([
+                'ok' => false,
+                'message' => 'ID kredensial biometrik wajib disertakan.',
+            ], 422);
+        }
 
-        if (! empty($credentialId)) {
-            // Find the exact user who owns this passkey credential
-            $user = User::whereNotNull('passkey_credentials')->get()->first(function (User $u) use ($credentialId) {
-                $creds = $u->passkey_credentials ?? [];
-                foreach ($creds as $c) {
-                    if (($c['id'] ?? null) === $credentialId) {
-                        return true;
-                    }
+        $expectedChallenge = session()->pull('passkey_login_challenge');
+        if (! is_string($expectedChallenge) || $expectedChallenge === '') {
+            return response()->json([
+                'ok' => false,
+                'message' => 'Sesi tantangan biometrik tidak valid atau telah kedaluwarsa. Silakan muat ulang halaman.',
+            ], 401);
+        }
+
+        if ($request->filled('clientDataJSON')) {
+            if (! $this->verifyClientDataChallenge((string) $request->input('clientDataJSON'), $expectedChallenge, 'webauthn.get')) {
+                return response()->json([
+                    'ok' => false,
+                    'message' => 'Verifikasi tantangan WebAuthn gagal.',
+                ], 401);
+            }
+        }
+
+        $matchedCredential = null;
+        $user = User::whereNotNull('passkey_credentials')->get()->first(function (User $u) use ($credentialId, &$matchedCredential) {
+            $creds = $u->passkey_credentials ?? [];
+            foreach ($creds as $c) {
+                if (isset($c['id']) && is_string($c['id']) && hash_equals($c['id'], $credentialId)) {
+                    $matchedCredential = $c;
+
+                    return true;
                 }
+            }
 
-                return false;
-            });
-        }
+            return false;
+        });
 
-        // Fallback: check by email if provided
-        if (! $user && $request->filled('email')) {
-            $user = User::where('email', $request->input('email'))->first();
-        }
-
-        // Fallback: find any user with registered biometric credentials
-        if (! $user) {
-            $user = User::whereNotNull('passkey_credentials')->get()->first(function (User $u) {
-                return ! empty($u->passkey_credentials);
-            });
-        }
-
-        // Fallback: first user
-        if (! $user) {
-            $user = User::first();
-        }
-
-        if (! $user) {
+        if (! $user || ! $matchedCredential) {
             return response()->json([
                 'ok' => false,
-                'message' => 'Pengguna tidak ditemukan.',
-            ], 404);
+                'message' => 'Kredensial biometrik tidak dikenali atau tidak terdaftar.',
+            ], 401);
         }
 
-        // Verify that user has registered at least 1 biometric credential
-        $credentials = $user->passkey_credentials ?? [];
-        if (empty($credentials)) {
-            return response()->json([
-                'ok' => false,
-                'message' => 'Biometrik belum diaktifkan pada akun ini. Silakan login dengan password terlebih dahulu, lalu aktifkan di menu profil.',
-            ], 400);
+        if (! empty($matchedCredential['public_key'])) {
+            $authenticatorData = (string) $request->input('authenticatorData', '');
+            $clientDataJson = (string) $request->input('clientDataJSON', '');
+            $signature = (string) $request->input('signature', '');
+
+            if ($authenticatorData === '' || $clientDataJson === '' || $signature === '') {
+                return response()->json([
+                    'ok' => false,
+                    'message' => 'Payload tanda tangan kriptografi WebAuthn tidak lengkap.',
+                ], 401);
+            }
+
+            if (! $this->verifyAssertionSignature(
+                $matchedCredential['public_key'],
+                $authenticatorData,
+                $clientDataJson,
+                $signature,
+                (int) ($matchedCredential['alg'] ?? -7)
+            )) {
+                return response()->json([
+                    'ok' => false,
+                    'message' => 'Tanda tangan kriptografi biometrik tidak valid.',
+                ], 401);
+            }
         }
 
-        // Login user
         Auth::login($user, true);
         session()->regenerate();
 
@@ -186,8 +207,25 @@ class PasskeyAuthController extends Controller
         }
 
         $credentialId = $request->input('id');
-        if (empty($credentialId)) {
+        if (! is_string($credentialId) || trim($credentialId) === '') {
             return response()->json(['ok' => false, 'message' => 'ID Kredensial tidak valid.'], 422);
+        }
+
+        $expectedChallenge = session()->pull('passkey_register_challenge');
+        if (! is_string($expectedChallenge) || $expectedChallenge === '') {
+            return response()->json([
+                'ok' => false,
+                'message' => 'Sesi tantangan pendaftaran biometrik tidak valid atau telah kedaluwarsa.',
+            ], 422);
+        }
+
+        if ($request->filled('clientDataJSON')) {
+            if (! $this->verifyClientDataChallenge((string) $request->input('clientDataJSON'), $expectedChallenge, 'webauthn.create')) {
+                return response()->json([
+                    'ok' => false,
+                    'message' => 'Verifikasi tantangan pendaftaran WebAuthn gagal.',
+                ], 422);
+            }
         }
 
         $deviceName = $request->input('device_name', $request->header('User-Agent', 'Perangkat'));
@@ -216,11 +254,18 @@ class PasskeyAuthController extends Controller
         }
 
         if (! $exists) {
-            $credentials[] = [
+            $credentialRecord = [
                 'id' => $credentialId,
                 'device_name' => $deviceName,
                 'registered_at' => now()->translatedFormat('d M Y H:i:s'),
             ];
+
+            if ($request->filled('public_key') && is_string($request->input('public_key'))) {
+                $credentialRecord['public_key'] = $request->input('public_key');
+                $credentialRecord['alg'] = (int) $request->input('public_key_algorithm', -7);
+            }
+
+            $credentials[] = $credentialRecord;
 
             $user->update([
                 'passkey_credentials' => $credentials,
@@ -232,6 +277,72 @@ class PasskeyAuthController extends Controller
             'message' => "Perangkat biometrik ({$deviceName}) berhasil didaftarkan!",
             'credentials_count' => count($credentials),
         ]);
+    }
+
+    /**
+     * Verify WebAuthn clientDataJSON type and session challenge.
+     */
+    protected function verifyClientDataChallenge(string $encodedClientData, string $expectedChallenge, string $expectedType): bool
+    {
+        $decodedJson = $this->base64UrlDecode($encodedClientData);
+        if ($decodedJson === false) {
+            return false;
+        }
+
+        $clientData = json_decode($decodedJson, true);
+        if (! is_array($clientData) || ($clientData['type'] ?? null) !== $expectedType) {
+            return false;
+        }
+
+        $receivedChallengeBytes = $this->base64UrlDecode((string) ($clientData['challenge'] ?? ''));
+        if ($receivedChallengeBytes === false) {
+            return false;
+        }
+
+        return hash_equals($expectedChallenge, $receivedChallengeBytes)
+            || hash_equals(base64_encode($expectedChallenge), (string) ($clientData['challenge'] ?? ''));
+    }
+
+    /**
+     * Verify WebAuthn assertion signature against stored SPKI public key.
+     */
+    protected function verifyAssertionSignature(
+        string $encodedSpkiPublicKey,
+        string $encodedAuthenticatorData,
+        string $encodedClientDataJson,
+        string $encodedSignature,
+        int $algorithm = -7
+    ): bool {
+        $spkiDer = $this->base64UrlDecode($encodedSpkiPublicKey);
+        $authData = $this->base64UrlDecode($encodedAuthenticatorData);
+        $clientData = $this->base64UrlDecode($encodedClientDataJson);
+        $signature = $this->base64UrlDecode($encodedSignature);
+
+        if ($spkiDer === false || $authData === false || $clientData === false || $signature === false) {
+            return false;
+        }
+
+        $pem = "-----BEGIN PUBLIC KEY-----\n"
+            .chunk_split(base64_encode($spkiDer), 64, "\n")
+            ."-----END PUBLIC KEY-----\n";
+
+        $signedData = $authData.hash('sha256', $clientData, true);
+        $opensslAlg = $algorithm === -257 ? OPENSSL_ALGO_SHA256 : OPENSSL_ALGO_SHA256;
+
+        return openssl_verify($signedData, $signature, $pem, $opensslAlg) === 1;
+    }
+
+    /**
+     * Decode standard base64 or base64url string.
+     */
+    protected function base64UrlDecode(string $input): string|false
+    {
+        $remainder = strlen($input) % 4;
+        if ($remainder) {
+            $input .= str_repeat('=', 4 - $remainder);
+        }
+
+        return base64_decode(strtr($input, '-_', '+/'), true);
     }
 
     /**

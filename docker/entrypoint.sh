@@ -13,7 +13,7 @@ chmod -R 775 /var/www/html/storage /var/www/html/bootstrap/cache /var/www/html/d
 
 if [ -f /var/www/html/.env ]; then
     chown www-data:www-data /var/www/html/.env 2>/dev/null || true
-    chmod 666 /var/www/html/.env 2>/dev/null || true
+    chmod 640 /var/www/html/.env 2>/dev/null || true
 fi
 
 # Setup cron job Laravel Scheduler

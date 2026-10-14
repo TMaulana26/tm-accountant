@@ -126,6 +126,9 @@ class TmAccountantInstallCommand extends Command
 
             if (! empty($botToken)) {
                 $envUpdates['TELEGRAM_BOT_TOKEN'] = $botToken;
+                if (empty(config('telegram.webhook_secret'))) {
+                    $envUpdates['TELEGRAM_WEBHOOK_SECRET'] = Str::random(32);
+                }
             }
             if (! empty($userId)) {
                 $envUpdates['TELEGRAM_ALLOWED_USER_IDS'] = $userId;
@@ -223,6 +226,14 @@ class TmAccountantInstallCommand extends Command
                     break;
 
                 case 'lmstudio':
+                    $baseUrl = $this->ask('Enter LM Studio API Base URL', 'http://localhost:1234/v1');
+                    $apiKey = $this->ask('API Key (leave blank if not required)', 'lm-studio');
+                    $model = $this->ask('Model Name', 'local-model');
+                    $envUpdates['LMSTUDIO_BASE_URL'] = $baseUrl;
+                    $envUpdates['LMSTUDIO_API_KEY'] = $apiKey;
+                    $envUpdates['LMSTUDIO_MODEL'] = $model;
+                    break;
+
                 case 'custom':
                     $baseUrl = $this->ask('Enter API Base URL (OpenAI-compatible)', 'http://localhost:1234/v1');
                     $apiKey = $this->ask('API Key (leave blank if not required)', 'local-key');

@@ -252,7 +252,7 @@
             </p>
 
             <div class="overflow-x-auto rounded-xl border border-gray-800 bg-gray-950 p-4 font-mono text-xs text-emerald-400 dark:bg-black">
-                <code>curl -F "url=https://keuangan.domainanda.com/api/telegram/webhook" https://api.telegram.org/bot{{ config('telegram.bot_token') }}/setWebhook</code>
+                <code>curl -F "url=https://keuangan.domainanda.com/api/telegram/webhook" https://api.telegram.org/bot&lt;YOUR_TELEGRAM_BOT_TOKEN&gt;/setWebhook</code>
             </div>
 
             <p class="text-xs text-gray-500 dark:text-gray-400">

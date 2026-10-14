@@ -12,7 +12,7 @@ Route::post('/api/telegram/webhook', [TelegramWebhookController::class, 'handle'
 Route::post('/telegram/webhook', [TelegramWebhookController::class, 'handle']);
 
 // Passkey & Biometric Routes
-Route::prefix('auth/passkey')->name('passkey.')->group(function () {
+Route::prefix('auth/passkey')->name('passkey.')->middleware('throttle:10,1')->group(function () {
     Route::get('/login-options', [PasskeyAuthController::class, 'loginOptions'])->name('login-options');
     Route::post('/login', [PasskeyAuthController::class, 'login'])->name('login');
 

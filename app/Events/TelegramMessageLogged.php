@@ -3,8 +3,8 @@
 namespace App\Events;
 
 use App\Models\TelegramMessage;
-use Illuminate\Broadcasting\Channel;
 use Illuminate\Broadcasting\InteractsWithSockets;
+use Illuminate\Broadcasting\PrivateChannel;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
@@ -44,7 +44,7 @@ class TelegramMessageLogged implements ShouldBroadcastNow
     public function broadcastOn(): array
     {
         return [
-            new Channel('accounting'),
+            new PrivateChannel('accounting'),
         ];
     }
 

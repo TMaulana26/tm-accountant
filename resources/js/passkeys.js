@@ -97,6 +97,9 @@ window.loginWithPasskey = async function () {
                 rawId: arrayBufferToBase64(assertion.rawId),
                 type: assertion.type,
                 email: email,
+                clientDataJSON: assertion.response?.clientDataJSON ? arrayBufferToBase64(assertion.response.clientDataJSON) : null,
+                authenticatorData: assertion.response?.authenticatorData ? arrayBufferToBase64(assertion.response.authenticatorData) : null,
+                signature: assertion.response?.signature ? arrayBufferToBase64(assertion.response.signature) : null,
             }),
         });
 
@@ -155,6 +158,13 @@ window.registerPasskey = async function () {
             throw new Error('Pendaftaran biometrik dibatalkan.');
         }
 
+        const spkiBuffer = typeof credential.response?.getPublicKey === 'function'
+            ? credential.response.getPublicKey()
+            : null;
+        const pubKeyAlg = typeof credential.response?.getPublicKeyAlgorithm === 'function'
+            ? credential.response.getPublicKeyAlgorithm()
+            : -7;
+
         const response = await fetch('/auth/passkey/register', {
             method: 'POST',
             headers: {
@@ -166,6 +176,10 @@ window.registerPasskey = async function () {
                 id: credential.id,
                 rawId: arrayBufferToBase64(credential.rawId),
                 type: credential.type,
+                clientDataJSON: credential.response?.clientDataJSON ? arrayBufferToBase64(credential.response.clientDataJSON) : null,
+                attestationObject: credential.response?.attestationObject ? arrayBufferToBase64(credential.response.attestationObject) : null,
+                public_key: spkiBuffer ? arrayBufferToBase64(spkiBuffer) : null,
+                public_key_algorithm: pubKeyAlg,
             }),
         });
 

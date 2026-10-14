@@ -12,9 +12,9 @@ function registerEchoListeners() {
     }
     window.__accountingEchoRegistered = true;
 
-    console.log('[Reverb/Echo] Subscribed to channel: accounting');
+    console.log('[Reverb/Echo] Subscribed to private channel: accounting');
 
-    const channel = window.Echo.channel('accounting');
+    const channel = window.Echo.private('accounting');
 
     // 1. Transaction Recorded (New transaction logged via web or telegram)
     channel.listen('.TransactionRecorded', (e) => {

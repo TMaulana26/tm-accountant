@@ -64,3 +64,17 @@ test('filters telegram chat history by intent and period', function () {
         ])
         ->assertDontSee('Gaji 10jt');
 });
+
+test('formatChatResponse escapes malicious XSS tags while preserving safe formatting', function () {
+    $page = new TelegramChatHistoryPage;
+
+    $malicious = '<script>alert("xss")</script><img src=x onerror=alert(1)><b>Saldo:</b> **Rp 50.000** `1-10001`';
+    $formatted = $page->formatChatResponse($malicious);
+
+    expect($formatted)->not->toContain('<script>')
+        ->and($formatted)->not->toContain('<img')
+        ->and($formatted)->toContain('&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;')
+        ->and($formatted)->toContain('<strong>Saldo:</strong>')
+        ->and($formatted)->toContain('<strong>Rp 50.000</strong>')
+        ->and($formatted)->toContain('<code>1-10001</code>');
+});

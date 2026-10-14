@@ -194,6 +194,15 @@ class TelegramChatHistoryPage extends Page
             return '';
         }
 
+        $text = e($text);
+
+        // Restore safe attribute-free Telegram HTML formatting tags
+        $text = str_replace(
+            ['&lt;b&gt;', '&lt;/b&gt;', '&lt;strong&gt;', '&lt;/strong&gt;', '&lt;i&gt;', '&lt;/i&gt;', '&lt;em&gt;', '&lt;/em&gt;', '&lt;code&gt;', '&lt;/code&gt;', '&lt;pre&gt;', '&lt;/pre&gt;'],
+            ['<strong>', '</strong>', '<strong>', '</strong>', '<em>', '</em>', '<em>', '</em>', '<code>', '</code>', '<pre>', '</pre>'],
+            $text
+        );
+
         // 1. Convert Markdown bold **text** or __text__ to <strong>text</strong>
         $text = preg_replace('/\*\*(.*?)\*\*/s', '<strong>$1</strong>', $text);
         $text = preg_replace('/__(.*?)__/s', '<strong>$1</strong>', $text);

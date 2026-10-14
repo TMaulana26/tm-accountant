@@ -106,12 +106,12 @@ test('creating transaction dispatches TransactionRecorded and WalletBalanceUpdat
             && $event->entryNumber === $journal->entry_number
             && $event->amount === 50000.0
             && $event->source === 'telegram'
-            && $event->broadcastOn()[0]->name === 'accounting';
+            && $event->broadcastOn()[0]->name === 'private-accounting';
     });
 
     Event::assertDispatched(WalletBalanceUpdated::class, function ($event) {
         return $event->accountId === $this->kasTunai->id
-            && $event->broadcastOn()[0]->name === 'accounting';
+            && $event->broadcastOn()[0]->name === 'private-accounting';
     });
 });
 
@@ -140,12 +140,12 @@ test('reverting transaction dispatches TransactionReverted and WalletBalanceUpda
     Event::assertDispatched(TransactionReverted::class, function ($event) use ($journal) {
         return $event->journalEntryId === $journal->id
             && $event->entryNumber === $journal->entry_number
-            && $event->broadcastOn()[0]->name === 'accounting';
+            && $event->broadcastOn()[0]->name === 'private-accounting';
     });
 
     Event::assertDispatched(WalletBalanceUpdated::class, function ($event) {
         return $event->accountId === $this->kasTunai->id
-            && $event->broadcastOn()[0]->name === 'accounting';
+            && $event->broadcastOn()[0]->name === 'private-accounting';
     });
 });
 
@@ -169,6 +169,6 @@ test('saving TelegramMessage dispatches TelegramMessageLogged broadcast event', 
             && $event->fromUsername === 'tmaulana'
             && $event->rawText === 'beli bensin 50rb'
             && $event->intent === 'record_expense'
-            && $event->broadcastOn()[0]->name === 'accounting';
+            && $event->broadcastOn()[0]->name === 'private-accounting';
     });
 });

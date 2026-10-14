@@ -26,7 +26,7 @@ class GeminiDriver implements AiDriverInterface
 
     public function chat(string $systemPrompt, string $userMessage, array $tools = []): array
     {
-        $endpoint = "{$this->baseUrl}/models/{$this->model}:generateContent?key={$this->apiKey}";
+        $endpoint = "{$this->baseUrl}/models/{$this->model}:generateContent";
 
         $contents = [
             [
@@ -64,7 +64,10 @@ class GeminiDriver implements AiDriverInterface
         }
 
         $response = Http::timeout($this->timeout)
-            ->withHeaders(['Content-Type' => 'application/json'])
+            ->withHeaders([
+                'Content-Type' => 'application/json',
+                'x-goog-api-key' => $this->apiKey,
+            ])
             ->post($endpoint, $payload);
 
         if (! $response->successful()) {
@@ -102,8 +105,6 @@ class GeminiDriver implements AiDriverInterface
         $prompt = $prompt ?: 'Transkripsikan seluruh teks dan angka dari nota/struk atau bukti transfer ini secara lengkap dan terstruktur.';
         $base64Data = base64_encode($imageBytes);
 
-        $endpoint = "{$this->baseUrl}/models/{$this->model}:generateContent?key={$this->apiKey}";
-
         $payload = [
             'contents' => [
                 [
@@ -123,7 +124,7 @@ class GeminiDriver implements AiDriverInterface
             ],
         ];
 
-        $modelsToTry = array_unique([$this->model, 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-3.5-flash', 'gemini-3.6-flash']);
+        $modelsToTry = array_unique([$this->model, 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-3.5-flash-lite']);
         $lastException = null;
         $startTime = microtime(true);
         $maxTotalDuration = $this->timeout;
@@ -136,7 +137,7 @@ class GeminiDriver implements AiDriverInterface
             }
 
             try {
-                $tryEndpoint = "{$this->baseUrl}/models/{$modelName}:generateContent?key={$this->apiKey}";
+                $tryEndpoint = "{$this->baseUrl}/models/{$modelName}:generateContent";
 
                 $generationConfig = ['temperature' => 0.1];
 
@@ -146,7 +147,10 @@ class GeminiDriver implements AiDriverInterface
                 ];
 
                 $response = Http::timeout($remaining)
-                    ->withHeaders(['Content-Type' => 'application/json'])
+                    ->withHeaders([
+                        'Content-Type' => 'application/json',
+                        'x-goog-api-key' => $this->apiKey,
+                    ])
                     ->post($tryEndpoint, $modelPayload);
 
                 if ($response->successful()) {

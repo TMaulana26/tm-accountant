@@ -39,7 +39,11 @@ class TelegramBotService
         protected ?TransactionExportService $transactionExportService = null,
     ) {
         $this->botToken = (string) config('telegram.bot_token', '');
-        $this->allowedUserIds = (array) config('telegram.allowed_user_ids', []);
+        $rawAllowed = config('telegram.allowed_user_ids', []);
+        if (is_string($rawAllowed)) {
+            $rawAllowed = array_filter(array_map('trim', explode(',', $rawAllowed)));
+        }
+        $this->allowedUserIds = array_values(array_filter(array_map('strval', (array) $rawAllowed)));
         $this->environmentService = $environmentService ?? app(EnvironmentService::class);
         $this->transactionExportService = $transactionExportService ?? app(TransactionExportService::class);
     }
@@ -50,10 +54,12 @@ class TelegramBotService
     public function isUserAllowed(string|int $userId): bool
     {
         if (empty($this->allowedUserIds)) {
-            return true; // If no whitelist configured, allow (or open)
+            Log::warning('TelegramBotService: Access denied because TELEGRAM_ALLOWED_USER_IDS is empty.');
+
+            return false;
         }
 
-        return in_array((string) $userId, array_map('strval', $this->allowedUserIds), true);
+        return in_array((string) $userId, $this->allowedUserIds, true);
     }
 
     /**
@@ -1392,9 +1398,9 @@ class TelegramBotService
             return;
         }
 
-        // 2. Parse command
-        if (! preg_match('/^\/set\s+([A-Za-z0-9_]+)\s+(.+)$/s', $text, $matches)) {
-            $this->sendMessage($chatId, "⚠️ Format salah. Gunakan format:\n<code>/set KEY NILAI</code>\n\nContoh:\n<code>/set OPENROUTER_MODEL minimax/minimax-m3:free</code>");
+        // 2. Parse command (strictly single-line value to prevent .env newline injection)
+        if (! preg_match('/^\/set\s+([A-Za-z0-9_]+)\s+([^\r\n]+)$/', $text, $matches)) {
+            $this->sendMessage($chatId, "⚠️ Format salah. Gunakan format satu baris:\n<code>/set KEY NILAI</code>\n\nContoh:\n<code>/set OPENROUTER_MODEL minimax/minimax-m3:free</code>");
 
             return;
         }

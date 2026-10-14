@@ -328,3 +328,32 @@ test('handles gender selection callback and updates APP_OWNER_GENDER to perempua
             && str_contains($request['text'], 'Teteh');
     });
 });
+
+test('EnvironmentService strips newlines to prevent .env injection and preserves dollar-digit secrets', function () {
+    $tempEnv = storage_path('framework/testing/.env.test_security');
+    file_put_contents($tempEnv, "APP_NAME=\"TM Accountant\"\nAI_API_KEY=old_key\n");
+
+    try {
+        $service = new EnvironmentService;
+        $result = $service->update([
+            'AI_API_KEY' => "sk-secret$1$2\\1value\nAPP_KEY=base64:injected_evil_key",
+            'BAI_API_KEY' => 'bai-key-999',
+        ], $tempEnv);
+
+        expect($result)->toBeTrue();
+
+        $updatedContent = file_get_contents($tempEnv);
+        expect($updatedContent)->toContain('AI_API_KEY=sk-secret$1$2\\1valueAPP_KEY=base64:injected_evil_key')
+            ->and($updatedContent)->not->toMatch('/^APP_KEY=/m')
+            ->and($updatedContent)->toContain('BAI_API_KEY=bai-key-999');
+    } finally {
+        @unlink($tempEnv);
+    }
+});
+
+test('TelegramBotService fails closed when allowed_user_ids is empty', function () {
+    config(['telegram.allowed_user_ids' => []]);
+    $botService = app(TelegramBotService::class);
+
+    expect($botService->isUserAllowed('123456789'))->toBeFalse();
+});

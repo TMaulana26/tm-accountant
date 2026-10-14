@@ -90,6 +90,38 @@ test('passkey login endpoint authenticates user who registered passkey', functio
     $this->assertAuthenticatedAs($this->user);
 });
 
+test('passkey login rejects empty payload, unknown credential ID, or missing session challenge', function () {
+    $this->user->update([
+        'passkey_credentials' => [
+            [
+                'id' => 'valid_credential_id_777',
+                'device_name' => 'Windows Hello / PC',
+                'registered_at' => now()->toDateTimeString(),
+            ],
+        ],
+    ]);
+
+    // 1. Empty payload {} must be rejected with 422 (no fallback to first user)
+    $this->postJson('/auth/passkey/login', [])
+        ->assertStatus(422)
+        ->assertJson(['ok' => false]);
+    $this->assertGuest();
+
+    // 2. Valid credential ID without initiating login-options challenge must be rejected with 401
+    $this->postJson('/auth/passkey/login', [
+        'id' => 'valid_credential_id_777',
+    ])->assertStatus(401);
+    $this->assertGuest();
+
+    // 3. Unknown credential ID even with valid admin email and active challenge must be rejected with 401
+    $this->getJson('/auth/passkey/login-options')->assertSuccessful();
+    $this->postJson('/auth/passkey/login', [
+        'id' => 'attacker_forged_credential_id',
+        'email' => 'admin@example.com',
+    ])->assertStatus(401);
+    $this->assertGuest();
+});
+
 test('authenticated user can register and clear passkeys', function () {
     $this->actingAs($this->user);
 

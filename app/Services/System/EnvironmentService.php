@@ -22,6 +22,9 @@ class EnvironmentService
         'AI_MODEL',
         'AI_API_KEY',
         'AI_BASE_URL',
+        'BAI_API_KEY',
+        'BAI_BASE_URL',
+        'BAI_MODEL',
         'OPENROUTER_API_KEY',
         'OPENROUTER_MODEL',
         'OPENROUTER_BASE_URL',
@@ -40,11 +43,15 @@ class EnvironmentService
         'OLLAMA_BASE_URL',
         'OLLAMA_MODEL',
         'OLLAMA_API_KEY',
+        'LMSTUDIO_BASE_URL',
+        'LMSTUDIO_API_KEY',
+        'LMSTUDIO_MODEL',
         'CUSTOM_AI_BASE_URL',
         'CUSTOM_AI_API_KEY',
         'CUSTOM_AI_MODEL',
         'TELEGRAM_BOT_TOKEN',
         'TELEGRAM_ALLOWED_USER_IDS',
+        'TELEGRAM_WEBHOOK_SECRET',
     ];
 
     /**
@@ -52,9 +59,9 @@ class EnvironmentService
      *
      * @param  array<string, string|null>  $values
      */
-    public function update(array $values): bool
+    public function update(array $values, ?string $customEnvPath = null): bool
     {
-        $envPath = base_path('.env');
+        $envPath = $customEnvPath ?? base_path('.env');
         if (! File::exists($envPath)) {
             return false;
         }
@@ -75,32 +82,37 @@ class EnvironmentService
                 continue;
             }
 
-            $value = trim($value);
-            if (str_contains($value, ' ') && ! str_starts_with($value, '"')) {
-                $value = '"'.$value.'"';
+            // Strip CR/LF characters to prevent arbitrary multiline .env variable injection
+            $value = str_replace(["\r", "\n"], '', trim($value));
+            if ((str_contains($value, ' ') || str_contains($value, '#')) && ! str_starts_with($value, '"')) {
+                $escaped = str_replace('"', '\\"', $value);
+                $value = '"'.$escaped.'"';
             }
 
             if (preg_match("/^{$key}=/m", $envContent)) {
-                $envContent = preg_replace("/^{$key}=.*/m", "{$key}={$value}", $envContent);
+                $envContent = (string) preg_replace_callback(
+                    "/^{$key}=.*/m",
+                    fn () => "{$key}={$value}",
+                    $envContent
+                );
             } else {
-                $envContent .= "\n{$key}={$value}";
+                $envContent = rtrim($envContent, "\r\n")."\n{$key}={$value}\n";
             }
         }
 
         try {
-            @chmod($envPath, 0666);
-            if (@file_put_contents($envPath, $envContent) === false) {
-                $handle = @fopen($envPath, 'w');
-                if ($handle) {
-                    fwrite($handle, $envContent);
-                    fclose($handle);
-                } else {
-                    File::put($envPath, $envContent);
-                }
+            @chmod($envPath, 0600);
+            if (@file_put_contents($envPath, $envContent, LOCK_EX) === false) {
+                File::put($envPath, $envContent, true);
             }
 
-            // Clear cache so Laravel reloads new configurations
-            Artisan::call('optimize:clear');
+            if ($customEnvPath === null) {
+                $wasConfigCached = app()->configurationIsCached();
+                Artisan::call('config:clear');
+                if ($wasConfigCached) {
+                    Artisan::call('config:cache');
+                }
+            }
 
             return true;
         } catch (Exception $e) {
