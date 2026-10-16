@@ -63,9 +63,10 @@ class GeminiDriver implements AiDriverInterface
 
         $modelsToTry = array_values(array_unique([
             $this->model,
-            'gemini-2.5-flash',
-            'gemini-2.0-flash',
-            'gemini-2.0-flash-lite',
+            'gemini-3.5-flash-lite',
+            'gemini-3.1-flash-lite',
+            'gemini-3.1-flash-lite-preview',
+            'gemini-flash-lite-latest',
         ]));
 
         $lastException = null;
@@ -162,7 +163,13 @@ class GeminiDriver implements AiDriverInterface
             ],
         ];
 
-        $modelsToTry = array_unique([$this->model, 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-3.5-flash-lite']);
+        $modelsToTry = array_values(array_unique([
+            $this->model,
+            'gemini-3.5-flash-lite',
+            'gemini-3.1-flash-lite',
+            'gemini-3.1-flash-lite-preview',
+            'gemini-flash-lite-latest',
+        ]));
         $lastException = null;
         $startTime = microtime(true);
         $maxTotalDuration = $this->timeout;

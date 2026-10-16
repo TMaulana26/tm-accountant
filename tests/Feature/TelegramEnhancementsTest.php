@@ -171,10 +171,10 @@ it('supports reply-to-edit (update_transaction) to switch wallet or amount of an
 
 it('automatically falls back to secondary Gemini models when primary model returns 503 high demand', function () {
     Http::fake([
-        'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent*' => Http::response([
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent*' => Http::response([
             'error' => ['message' => 'This model is currently experiencing high demand.'],
         ], 503),
-        'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent*' => Http::response([
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent*' => Http::response([
             'candidates' => [
                 [
                     'content' => [
@@ -199,7 +199,7 @@ it('automatically falls back to secondary Gemini models when primary model retur
     $driver = new GeminiDriver(
         baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
         apiKey: 'fake-gemini-key',
-        model: 'gemini-3.1-flash-lite-preview',
+        model: 'gemini-3.5-flash-lite',
         timeout: 10
     );
 

@@ -2321,7 +2321,7 @@ class TelegramBotService
             case 'cfg_ai_model_input':
                 $this->answerCallbackQuery($callbackId);
                 Cache::put("tg_setup_state_{$chatId}", ['step' => 'awaiting_ai_model'], now()->addMinutes(5));
-                $this->sendMessage($chatId, "🧠 <b>GANTI MODEL AI AKTIF</b>\n\nSilakan ketik nama model yang ingin digunakan.\n\n👉 <b>Contoh:</b>\n• OpenRouter: <code>minimax/minimax-m3:free</code>\n• OpenRouter: <code>anthropic/claude-3.5-sonnet</code>\n• DeepSeek: <code>deepseek-chat</code>\n• Gemini: <code>gemini-3.7-flash</code>\n• OpenAI: <code>gpt-4o-mini</code>\n• Groq: <code>llama-3.3-70b-versatile</code>\n\n<i>Ketik /batal untuk membatalkan.</i>");
+                $this->sendMessage($chatId, "🧠 <b>GANTI MODEL AI AKTIF</b>\n\nSilakan ketik nama model yang ingin digunakan.\n\n👉 <b>Contoh:</b>\n• OpenRouter: <code>minimax/minimax-m3:free</code>\n• OpenRouter: <code>anthropic/claude-3.5-sonnet</code>\n• DeepSeek: <code>deepseek-chat</code>\n• Gemini: <code>gemini-3.5-flash-lite</code>\n• OpenAI: <code>gpt-4o-mini</code>\n• Groq: <code>llama-3.3-70b-versatile</code>\n\n<i>Ketik /batal untuk membatalkan.</i>");
                 break;
 
             case 'cfg_ai_apikey_input':
@@ -2360,7 +2360,7 @@ class TelegramBotService
                     } elseif ($provider === 'deepseek' && empty(env('DEEPSEEK_MODEL'))) {
                         $updates['DEEPSEEK_MODEL'] = 'deepseek-chat';
                     } elseif ($provider === 'gemini' && empty(env('GEMINI_MODEL'))) {
-                        $updates['GEMINI_MODEL'] = 'gemini-3.7-flash';
+                        $updates['GEMINI_MODEL'] = 'gemini-3.5-flash-lite';
                     }
 
                     $this->environmentService->update($updates);
